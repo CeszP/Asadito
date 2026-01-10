@@ -24,6 +24,7 @@ export default function Login() {
         setLoading(true);
         try {
             await sendOtp(cleanEmail);
+            sessionStorage.setItem('asadito_from', from);
             navigate('/verify', { state: { email: cleanEmail, from } });
         } catch (err: any) {
             setError(err?.message ?? 'No se pudo enviar el código. Intenta de nuevo.');

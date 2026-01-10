@@ -10,7 +10,7 @@ export default function Verify() {
     const state = (location.state ?? {}) as VerifyState;
 
     const email = state.email;
-    const from = state.from ?? '/';
+    const from = state.from ?? sessionStorage.getItem('asadito_from') ?? '/';
 
     const [code, setCode] = useState('');
     const [loading, setLoading] = useState(false);
@@ -18,7 +18,6 @@ export default function Verify() {
     const [error, setError] = useState<string | null>(null);
 
     if (!email) {
-        // Si alguien entra directo /verify sin state
         return (
             <div style={{ padding: 16 }}>
                 <p>Falta el correo. Regresa a iniciar sesión.</p>
@@ -42,6 +41,11 @@ export default function Verify() {
         setLoading(true);
         try {
             await verifyOtp(email, token);
+
+            // ✅ Limpia el "from" persistido
+            sessionStorage.removeItem('asadito_from');
+
+            // ✅ Regresa a la ruta original (ej. /join/xxxx)
             navigate(from, { replace: true });
         } catch (err: any) {
             setError(err?.message ?? 'Código inválido o expirado.');

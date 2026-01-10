@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 import { joinByCode } from '../lib/invites';
 
 export default function Join() {
@@ -10,20 +11,29 @@ export default function Join() {
     const [err, setErr] = useState<string | null>(null);
 
     useEffect(() => {
-        const c = String(code ?? '').trim();
-        if (!c) {
-            setErr('Código faltante.');
-            return;
-        }
+        const run = async () => {
+            const c = String(code ?? '').trim();
+            if (!c) {
+                setErr('Código faltante.');
+                return;
+            }
 
-        joinByCode(c)
-            .then((eventId) => {
+            const { data } = await supabase.auth.getSession();
+            if (!data.session) {
+                navigate('/login', { replace: true, state: { from: `/join/${c}` } });
+                return;
+            }
+
+            try {
+                const eventId = await joinByCode(c);
                 setMsg('Listo. Redirigiendo...');
                 navigate(`/event/${eventId}`, { replace: true });
-            })
-            .catch((e: any) => {
+            } catch (e: any) {
                 setErr(e?.message ?? 'No se pudo unir.');
-            });
+            }
+        };
+
+        run();
     }, [code, navigate]);
 
     return (
