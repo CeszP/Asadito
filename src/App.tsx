@@ -11,21 +11,19 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Públicas */}
         <Route path="/login" element={<Login />} />
         <Route path="/verify" element={<Verify />} />
+        <Route path="/join/:code" element={<Join />} />
 
+        {/* Protegidas */}
         <Route element={<ProtectedRoute />}>
           <Route path="/" element={<EventsHome />} />
           <Route path="/event/:id" element={<EventDetail />} />
         </Route>
 
+        {/* Catch-all AL FINAL */}
         <Route path="*" element={<Navigate to="/" replace />} />
-
-        <Route element={<ProtectedRoute />}>
-          <Route path="/" element={<EventsHome />} />
-          <Route path="/event/:id" element={<EventDetail />} />
-          <Route path="/join/:code" element={<Join />} />
-        </Route>
       </Routes>
     </BrowserRouter>
   );
