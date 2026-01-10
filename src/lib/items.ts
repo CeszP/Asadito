@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { ItemRow, ItemStatus } from "../types/db";
+import type { ItemStatus } from "../types/db";
 
 export async function addItem(params: {
   event_id: string;
