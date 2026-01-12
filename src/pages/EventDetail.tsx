@@ -57,6 +57,69 @@ export default function EventDetail() {
         return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
     }, [expenses]);
 
+    const balances = useMemo(() => {
+        if (byUser.length === 0) return [];
+
+        const people = byUser.length;
+        const perPerson = total / people;
+
+        return byUser.map(([uid, amt]) => {
+            const diff = amt - perPerson;
+            return {
+                uid,
+                paid: amt,
+                diff,
+            };
+        });
+    }, [byUser, total]);
+
+    type Transfer = { from: string; to: string; amount: number };
+
+    const transfers = useMemo<Transfer[]>(() => {
+        if (byUser.length === 0) return [];
+
+        const people = byUser.length;
+        const perPerson = total / people;
+
+        // Redondeo para evitar centavos fantasma por floats
+        const round2 = (n: number) => Math.round(n * 100) / 100;
+
+        const creditors: Array<{ uid: string; amt: number }> = [];
+        const debtors: Array<{ uid: string; amt: number }> = [];
+
+        for (const [uid, paid] of byUser) {
+            const diff = round2(paid - perPerson);
+            if (diff > 0.009) creditors.push({ uid, amt: diff });
+            else if (diff < -0.009) debtors.push({ uid, amt: -diff }); // positivo = lo que debe pagar
+        }
+
+        // Orden opcional (más grandes primero)
+        creditors.sort((a, b) => b.amt - a.amt);
+        debtors.sort((a, b) => b.amt - a.amt);
+
+        const out: Transfer[] = [];
+        let i = 0;
+        let j = 0;
+
+        while (i < debtors.length && j < creditors.length) {
+            const d = debtors[i];
+            const c = creditors[j];
+
+            const pay = Math.min(d.amt, c.amt);
+            if (pay > 0.009) {
+                out.push({ from: d.uid, to: c.uid, amount: round2(pay) });
+                d.amt = round2(d.amt - pay);
+                c.amt = round2(c.amt - pay);
+            }
+
+            if (d.amt <= 0.009) i++;
+            if (c.amt <= 0.009) j++;
+        }
+
+        return out;
+    }, [byUser, total]);
+
+
     const userIds = useMemo(() => expenses.map((e) => e.paid_by), [expenses]);
     const profiles = useProfiles(userIds);
 
@@ -287,6 +350,101 @@ export default function EventDetail() {
 
             <hr style={{ margin: '16px 0' }} />
             <h4>¿Quién ha puesto cuánto?</h4>
+
+            <hr style={{ margin: '16px 0' }} />
+            <h4>Balance</h4>
+
+            <div style={{ display: 'grid', gap: 8 }}>
+                {balances.map(({ uid, diff }) => {
+                    if (Math.abs(diff) < 0.01) return null;
+
+                    const name =
+                        profiles[uid]?.display_name ??
+                        `Usuario ${uid.slice(0, 6)}`;
+
+                    return (
+                        <div
+                            key={uid}
+                            style={{
+                                padding: '8px 10px',
+                                border: '1px solid #eee',
+                                borderRadius: 8,
+                                background: diff > 0 ? '#f0fff4' : '#fff5f5',
+                                color: diff > 0 ? '#046c4e' : '#7f1d1d',
+                            }}
+                        >
+                            {diff > 0 ? (
+                                <strong>{name}</strong>
+                            ) : (
+                                <span>{name}</span>
+                            )}{' '}
+                            {diff > 0 ? (
+                                <>recibe <strong>${diff.toFixed(2)}</strong></>
+                            ) : (
+                                <>debe <strong>${Math.abs(diff).toFixed(2)}</strong></>
+                            )}
+                        </div>
+                    );
+                })}
+
+                {balances.every(b => Math.abs(b.diff) < 0.01) && (
+                    <div style={{ opacity: 0.7 }}>
+                        Todos están parejos 🤝
+                    </div>
+                )}
+            </div>
+
+            <hr style={{ margin: '16px 0' }} />
+            <h4>¿Quién le paga a quién?</h4>
+
+            <div style={{ display: 'grid', gap: 8 }}>
+                {transfers.map((t, idx) => {
+                    if (t.from === t.to) return null;
+
+                    const fromName =
+                        profiles[t.from]?.display_name?.trim()
+                            ? profiles[t.from]!.display_name!
+                            : `Invitado ${t.from.slice(0, 4)}`;
+
+                    const toName =
+                        profiles[t.to]?.display_name?.trim()
+                            ? profiles[t.to]!.display_name!
+                            : `Invitado ${t.to.slice(0, 4)}`;
+
+                    return (
+                        <div
+                            key={`${t.from}-${t.to}-${idx}`}
+                            style={{
+                                padding: '10px 12px',
+                                border: '1px solid #eee',
+                                borderRadius: 10,
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                gap: 10,
+                            }}
+                        >
+                            <span style={{ fontWeight: 700 }}>
+                                {fromName}{' '}
+                                <span style={{ opacity: 0.7, fontWeight: 600 }}>paga a</span>{' '}
+                                {toName}
+                            </span>
+
+                            <span style={{ fontWeight: 800 }}>
+                                ${t.amount.toFixed(2)}
+                            </span>
+                        </div>
+                    );
+                })}
+
+                {transfers.length === 0 && (
+                    <div style={{ opacity: 0.7 }}>
+                        Todo parejo. Nadie le debe a nadie.
+                    </div>
+                )}
+            </div>
+
+            <hr style={{ margin: '16px 0' }} />
+            <h4>Desglose de Gastos</h4>
 
             <div style={{ display: 'grid', gap: 8 }}>
                 {byUser.map(([uid, amt]) => {
