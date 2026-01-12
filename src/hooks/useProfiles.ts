@@ -1,22 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 
-export type ProfileRow = {
-  id: string;
-  email: string | null;
-  display_name: string | null;
-};
+export type ProfileRow = { id: string; display_name: string | null };
 
 export function useProfiles(userIds: string[]) {
   const [profiles, setProfiles] = useState<Record<string, ProfileRow>>({});
 
+  const key = useMemo(
+    () => Array.from(new Set(userIds)).sort().join(","),
+    [userIds]
+  );
+
   useEffect(() => {
-    const ids = Array.from(new Set(userIds)).filter(Boolean);
+    const ids = key ? key.split(",").filter(Boolean) : [];
     if (ids.length === 0) return;
 
     supabase
       .from("profiles")
-      .select("id,email,display_name")
+      .select("id,display_name")
       .in("id", ids)
       .then(({ data, error }) => {
         if (error) return;
@@ -24,7 +25,7 @@ export function useProfiles(userIds: string[]) {
         for (const p of data ?? []) map[p.id] = p as ProfileRow;
         setProfiles(map);
       });
-  }, [userIds.join(",")]);
+  }, [key]);
 
   return profiles;
 }

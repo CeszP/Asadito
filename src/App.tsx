@@ -6,6 +6,8 @@ import Verify from './pages/Verify';
 import EventsHome from './pages/EventsHome';
 import EventDetail from './pages/EventDetail';
 import Join from './pages/Join';
+import Me from './pages/Me';
+
 
 export default function App() {
   return (
@@ -20,6 +22,7 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route path="/" element={<EventsHome />} />
           <Route path="/event/:id" element={<EventDetail />} />
+          <Route path="/me" element={<Me />} />
         </Route>
 
         {/* Catch-all AL FINAL */}

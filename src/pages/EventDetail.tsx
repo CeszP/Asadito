@@ -10,8 +10,6 @@ import { useEventExpenses } from '../hooks/useEventExpenses';
 import { addExpense, deleteExpense } from '../lib/expenses';
 import { useProfiles } from '../hooks/useProfiles';
 
-
-
 function nextStatus(s: ItemStatus): ItemStatus {
     if (s === 'pending') return 'bought';
     if (s === 'bought') return 'delivered';
@@ -42,6 +40,14 @@ export default function EventDetail() {
     const { expenses, total } = useEventExpenses(eventId);
     const [amount, setAmount] = useState('');
     const [note, setNote] = useState('');
+    const [expenseErr, setExpenseErr] = useState<string | null>(null);
+    const [expenseSaving, setExpenseSaving] = useState(false);
+
+    const grouped = useMemo(() => {
+        const map: Record<string, ItemRow[]> = {};
+        for (const it of items) (map[it.category] ??= []).push(it);
+        return map;
+    }, [items]);
 
     const byUser = useMemo(() => {
         const map = new Map<string, number>();
@@ -51,14 +57,8 @@ export default function EventDetail() {
         return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
     }, [expenses]);
 
-    const userIds = useMemo(() => expenses.map(e => e.paid_by), [expenses]);
+    const userIds = useMemo(() => expenses.map((e) => e.paid_by), [expenses]);
     const profiles = useProfiles(userIds);
-
-    const grouped = useMemo(() => {
-        const map: Record<string, ItemRow[]> = {};
-        for (const it of items) (map[it.category] ??= []).push(it);
-        return map;
-    }, [items]);
 
     async function onAdd() {
         setErr(null);
@@ -102,7 +102,6 @@ export default function EventDetail() {
             const url = `${window.location.origin}/join/${inv.code}`;
             setInviteUrl(url);
 
-            // Copiar al portapapeles (puede fallar en algunos contextos; no lo tratamos como fatal)
             try {
                 await navigator.clipboard.writeText(url);
             } catch {
@@ -115,12 +114,32 @@ export default function EventDetail() {
         }
     }
 
+    async function onAddExpense() {
+        setExpenseErr(null);
+
+        const amt = Number(amount);
+        const cleanNote = note.trim();
+
+        if (!Number.isFinite(amt) || amt <= 0) {
+            setExpenseErr('Ingresa un monto válido.');
+            return;
+        }
+
+        setExpenseSaving(true);
+        try {
+            await addExpense(eventId, amt, cleanNote || undefined);
+            setAmount('');
+            setNote('');
+        } catch (e: any) {
+            setExpenseErr(e?.message ?? 'No se pudo agregar el gasto.');
+        } finally {
+            setExpenseSaving(false);
+        }
+    }
+
     return (
         <div style={{ padding: 16, maxWidth: 820, margin: '0 auto' }}>
-            <button
-                onClick={() => navigate('/')}
-                style={{ padding: 10, borderRadius: 10, border: '1px solid #ccc' }}
-            >
+            <button onClick={() => navigate('/')} style={{ padding: 10, borderRadius: 10, border: '1px solid #ccc' }}>
                 ← Volver
             </button>
 
@@ -142,12 +161,7 @@ export default function EventDetail() {
 
                 {inviteUrl && (
                     <div style={{ opacity: 0.85, wordBreak: 'break-all' }}>
-                        Link{'\u00A0'}
-                        {inviteUrl ? (
-                            <>
-                                (copiado si tu navegador lo permitió): <code>{inviteUrl}</code>
-                            </>
-                        ) : null}
+                        Link (copiado si tu navegador lo permitió): <code>{inviteUrl}</code>
                     </div>
                 )}
             </div>
@@ -218,12 +232,7 @@ export default function EventDetail() {
                                     <div style={{ display: 'flex', gap: 8 }}>
                                         <button
                                             onClick={() => onToggle(it)}
-                                            style={{
-                                                padding: '10px 12px',
-                                                borderRadius: 10,
-                                                border: '1px solid #000',
-                                                fontWeight: 700,
-                                            }}
+                                            style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #000', fontWeight: 700 }}
                                         >
                                             Cambiar
                                         </button>
@@ -241,9 +250,7 @@ export default function EventDetail() {
                 ))}
 
                 {items.length === 0 && !loading && (
-                    <div style={{ opacity: 0.75 }}>
-                        Aún no hay cosas en la lista. Agrega la primera (ej. carbón).
-                    </div>
+                    <div style={{ opacity: 0.75 }}>Aún no hay cosas en la lista. Agrega la primera (ej. carbón).</div>
                 )}
             </div>
 
@@ -256,71 +263,67 @@ export default function EventDetail() {
                     onChange={(e) => setAmount(e.target.value)}
                     placeholder="Monto"
                     inputMode="decimal"
-                    style={{ padding: 10 }}
+                    style={{ padding: 10, borderRadius: 10, border: '1px solid #ccc' }}
                 />
                 <input
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
                     placeholder="Nota (ej. Carbón)"
-                    style={{ padding: 10 }}
+                    style={{ padding: 10, borderRadius: 10, border: '1px solid #ccc' }}
                 />
                 <button
-                    onClick={async () => {
-                        await addExpense(eventId, Number(amount), note);
-                        setAmount('');
-                        setNote('');
-                    }}
+                    onClick={onAddExpense}
+                    disabled={expenseSaving}
+                    style={{ padding: 12, borderRadius: 10, border: '1px solid #000', fontWeight: 800 }}
                 >
-                    Agregar gasto
+                    {expenseSaving ? 'Agregando...' : 'Agregar gasto'}
                 </button>
+                {expenseErr && <div style={{ color: 'crimson' }}>{expenseErr}</div>}
             </div>
 
-            <p><strong>Total:</strong> ${total.toFixed(2)}</p>
+            <p>
+                <strong>Total:</strong> ${total.toFixed(2)}
+            </p>
 
             <hr style={{ margin: '16px 0' }} />
-
             <h4>¿Quién ha puesto cuánto?</h4>
 
             <div style={{ display: 'grid', gap: 8 }}>
-                {byUser.map(([uid, amt]) => (
-                    <div
-                        key={uid}
-                        style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            padding: '8px 10px',
-                            border: '1px solid #eee',
-                            borderRadius: 8,
-                        }}
-                    >
-                        <span style={{ fontWeight: 600 }}>
-                            {profiles[uid]?.display_name
-                                ?? profiles[uid]?.email
-                                ?? `Usuario ${uid.slice(0, 6)}`}
-                        </span>
+                {byUser.map(([uid, amt]) => {
+                    const label = profiles[uid]?.display_name?.trim()
+                        ? profiles[uid]!.display_name!
+                        : `Invitado ${uid.slice(0, 4)}`;
 
-                        <span style={{ fontWeight: 700 }}>
-                            ${amt.toFixed(2)}
-                        </span>
-                    </div>
-                ))}
+                    return (
+                        <div
+                            key={uid}
+                            style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                padding: '8px 10px',
+                                border: '1px solid #eee',
+                                borderRadius: 8,
+                            }}
+                        >
+                            <span style={{ fontWeight: 600 }}>{label}</span>
+                            <span style={{ fontWeight: 700 }}>${amt.toFixed(2)}</span>
+                        </div>
+                    );
+                })}
 
-                {byUser.length === 0 && (
-                    <div style={{ opacity: 0.7 }}>
-                        Aún no hay gastos registrados.
-                    </div>
-                )}
+                {byUser.length === 0 && <div style={{ opacity: 0.7 }}>Aún no hay gastos registrados.</div>}
             </div>
 
             <ul>
                 {expenses.map((e) => (
                     <li key={e.id}>
-                        ${e.amount} — {e.note ?? 'Sin nota'}
-                        <button onClick={() => deleteExpense(e.id)}>✕</button>
+                        ${Number(e.amount).toFixed(2)} — {e.note ?? 'Sin nota'}{' '}
+                        <button onClick={() => deleteExpense(e.id)} style={{ marginLeft: 8 }}>
+                            ✕
+                        </button>
                     </li>
                 ))}
             </ul>
-
 
             <hr style={{ margin: '18px 0' }} />
             <div style={{ opacity: 0.75 }}>

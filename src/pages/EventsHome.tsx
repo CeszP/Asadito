@@ -59,8 +59,12 @@ export default function EventsHome() {
                 >
                     {loading ? 'Creando...' : 'Crear evento'}
                 </button>
+
                 {err && <div style={{ color: 'crimson' }}>{err}</div>}
             </div>
+            <button onClick={() => navigate('/me')} style={{ padding: 10, borderRadius: 10, border: '1px solid #ccc' }}>
+                Mi nombre
+            </button>
 
             <h3 style={{ marginTop: 20 }}>Tus eventos</h3>
 
