@@ -42,9 +42,14 @@ export default function EventDetail() {
         );
     }
 
+
+
     // Event meta (adult/minors)
     const { event } = useEvent(eventId);
 
+    <div style={{ opacity: 0.75, marginBottom: 10 }}>
+        debug: event? {event ? 'sí' : 'no'} | adults={String(event?.adults_count)} | minors={String(event?.minors_count)}
+    </div>
     const recs = useMemo(() => {
         const a = event?.adults_count ?? 0;
         const m = event?.minors_count ?? 0;
