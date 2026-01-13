@@ -6,10 +6,14 @@ import type { EventRow } from '../types/db';
 
 export default function EventsHome() {
     const navigate = useNavigate();
+
     const [events, setEvents] = useState<EventRow[]>([]);
     const [title, setTitle] = useState('Asadito del sábado');
     const [loading, setLoading] = useState(false);
     const [err, setErr] = useState<string | null>(null);
+
+    const [adults, setAdults] = useState<number>(4);
+    const [minors, setMinors] = useState<number>(0);
 
     async function refresh() {
         setErr(null);
@@ -23,10 +27,33 @@ export default function EventsHome() {
 
     async function onCreate() {
         setErr(null);
+
+        const cleanTitle = title.trim();
+        if (!cleanTitle) {
+            setErr('Ingresa un nombre para el evento.');
+            return;
+        }
+
+        const a = Number.isFinite(adults) ? Math.max(0, Math.floor(adults)) : 0;
+        const m = Number.isFinite(minors) ? Math.max(0, Math.floor(minors)) : 0;
+
+        if (a + m <= 0) {
+            setErr('Debes indicar al menos 1 asistente (adulto o menor).');
+            return;
+        }
+
         setLoading(true);
         try {
-            const ev = await createEvent(title.trim());
+            const ev = await createEvent({
+                title: cleanTitle,
+                adults_count: a,
+                minors_count: m,
+            });
+
             setTitle('Asadito del sábado');
+            setAdults(4);
+            setMinors(0);
+
             await refresh();
             navigate(`/event/${ev.id}`);
         } catch (e: any) {
@@ -52,6 +79,29 @@ export default function EventsHome() {
                     placeholder="Nombre del evento"
                     style={{ padding: 12, borderRadius: 10, border: '1px solid #ccc' }}
                 />
+
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 160 }}>
+                        <div style={{ fontWeight: 700, marginBottom: 6 }}>Adultos</div>
+                        <input
+                            value={String(adults)}
+                            onChange={(e) => setAdults(Number(e.target.value))}
+                            inputMode="numeric"
+                            style={{ padding: 12, borderRadius: 10, border: '1px solid #ccc', width: '100%' }}
+                        />
+                    </div>
+
+                    <div style={{ flex: 1, minWidth: 160 }}>
+                        <div style={{ fontWeight: 700, marginBottom: 6 }}>Menores</div>
+                        <input
+                            value={String(minors)}
+                            onChange={(e) => setMinors(Number(e.target.value))}
+                            inputMode="numeric"
+                            style={{ padding: 12, borderRadius: 10, border: '1px solid #ccc', width: '100%' }}
+                        />
+                    </div>
+                </div>
+
                 <button
                     disabled={loading}
                     onClick={onCreate}
@@ -62,7 +112,8 @@ export default function EventsHome() {
 
                 {err && <div style={{ color: 'crimson' }}>{err}</div>}
             </div>
-            <button onClick={() => navigate('/me')} style={{ padding: 10, borderRadius: 10, border: '1px solid #ccc' }}>
+
+            <button onClick={() => navigate('/me')} style={{ marginTop: 10, padding: 10, borderRadius: 10, border: '1px solid #ccc' }}>
                 Mi nombre
             </button>
 
@@ -76,9 +127,14 @@ export default function EventsHome() {
                         style={{ textAlign: 'left', padding: 12, borderRadius: 10, border: '1px solid #ddd' }}
                     >
                         <div style={{ fontWeight: 700 }}>{ev.title}</div>
-                        <div style={{ opacity: 0.8 }}>{ev.location_text ?? 'Sin ubicación'}</div>
+                        <div style={{ opacity: 0.8 }}>
+                            {typeof ev.adults_count === 'number' && typeof ev.minors_count === 'number'
+                                ? `${ev.adults_count} adultos · ${ev.minors_count} menores`
+                                : 'Asistentes no especificados'}
+                        </div>
                     </button>
                 ))}
+
                 {events.length === 0 && <div style={{ opacity: 0.7 }}>Aún no tienes eventos. Crea el primero.</div>}
             </div>
         </div>

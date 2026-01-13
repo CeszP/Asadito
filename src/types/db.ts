@@ -7,6 +7,8 @@ export type EventRow = {
   location_text: string | null;
   created_by: string;
   created_at: string;
+  adults_count: number;
+  minors_count: number;
 };
 
 export type EventMemberRow = {

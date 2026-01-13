@@ -11,19 +11,21 @@ export async function listMyEvents(): Promise<EventRow[]> {
   return (data ?? []) as EventRow[];
 }
 
-export async function createEvent(
-  title: string,
-  event_datetime?: string | null,
-  location_text?: string | null
-) {
+export async function createEvent(payload: {
+  title: string;
+  adults_count: number;
+  minors_count: number;
+}) {
   const { data, error } = await supabase
-    .rpc("create_event_with_owner", {
-      p_title: title,
-      p_event_datetime: event_datetime ?? null,
-      p_location_text: location_text ?? null,
+    .from("events")
+    .insert({
+      title: payload.title,
+      adults_count: payload.adults_count,
+      minors_count: payload.minors_count,
     })
+    .select("*")
     .single();
 
   if (error) throw error;
-  return data as EventRow;
+  return data;
 }

@@ -5,6 +5,8 @@ import type { Category } from '../constants/categories';
 import type { ItemRow, ItemStatus } from '../types/db';
 import { useEventItems } from '../hooks/useEventItems';
 import { addItem, deleteItem, updateItemStatus } from '../lib/items';
+import { useEvent } from '../hooks/useEvent';
+import { buildRecommendations, formatRecAmount } from '../lib/recommendations';
 import { createInvite } from '../lib/invites';
 import { useEventExpenses } from '../hooks/useEventExpenses';
 import { addExpense, deleteExpense } from '../lib/expenses';
@@ -22,11 +24,34 @@ function statusLabel(s: ItemStatus) {
     return 'Listo';
 }
 
+type Transfer = { from: string; to: string; amount: number };
+
 export default function EventDetail() {
     const { id } = useParams();
-    const eventId = String(id);
+    const eventId = id ?? '';
     const navigate = useNavigate();
 
+    if (!eventId) {
+        return (
+            <div style={{ padding: 16 }}>
+                <p>Evento inválido.</p>
+                <button onClick={() => navigate('/')} style={{ padding: 10, borderRadius: 10, border: '1px solid #ccc' }}>
+                    Ir a eventos
+                </button>
+            </div>
+        );
+    }
+
+    // Event meta (adult/minors)
+    const { event } = useEvent(eventId);
+
+    const recs = useMemo(() => {
+        const a = event?.adults_count ?? 0;
+        const m = event?.minors_count ?? 0;
+        return buildRecommendations(a, m);
+    }, [event?.adults_count, event?.minors_count]);
+
+    // Items
     const { items, loading } = useEventItems(eventId);
 
     const [name, setName] = useState('');
@@ -34,9 +59,11 @@ export default function EventDetail() {
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState<string | null>(null);
 
+    // Invites
     const [inviteUrl, setInviteUrl] = useState<string | null>(null);
     const [inviteLoading, setInviteLoading] = useState(false);
 
+    // Expenses
     const { expenses, total } = useEventExpenses(eventId);
     const [amount, setAmount] = useState('');
     const [note, setNote] = useState('');
@@ -59,29 +86,19 @@ export default function EventDetail() {
 
     const balances = useMemo(() => {
         if (byUser.length === 0) return [];
+        const perPerson = total / byUser.length;
 
-        const people = byUser.length;
-        const perPerson = total / people;
-
-        return byUser.map(([uid, amt]) => {
-            const diff = amt - perPerson;
-            return {
-                uid,
-                paid: amt,
-                diff,
-            };
-        });
+        return byUser.map(([uid, amt]) => ({
+            uid,
+            paid: amt,
+            diff: amt - perPerson,
+        }));
     }, [byUser, total]);
-
-    type Transfer = { from: string; to: string; amount: number };
 
     const transfers = useMemo<Transfer[]>(() => {
         if (byUser.length === 0) return [];
 
-        const people = byUser.length;
-        const perPerson = total / people;
-
-        // Redondeo para evitar centavos fantasma por floats
+        const perPerson = total / byUser.length;
         const round2 = (n: number) => Math.round(n * 100) / 100;
 
         const creditors: Array<{ uid: string; amt: number }> = [];
@@ -90,10 +107,9 @@ export default function EventDetail() {
         for (const [uid, paid] of byUser) {
             const diff = round2(paid - perPerson);
             if (diff > 0.009) creditors.push({ uid, amt: diff });
-            else if (diff < -0.009) debtors.push({ uid, amt: -diff }); // positivo = lo que debe pagar
+            else if (diff < -0.009) debtors.push({ uid, amt: -diff });
         }
 
-        // Orden opcional (más grandes primero)
         creditors.sort((a, b) => b.amt - a.amt);
         debtors.sort((a, b) => b.amt - a.amt);
 
@@ -119,8 +135,12 @@ export default function EventDetail() {
         return out;
     }, [byUser, total]);
 
+    const userIds = useMemo(() => {
+        const set = new Set<string>();
+        for (const e of expenses) set.add(e.paid_by);
+        return Array.from(set);
+    }, [expenses]);
 
-    const userIds = useMemo(() => expenses.map((e) => e.paid_by), [expenses]);
     const profiles = useProfiles(userIds);
 
     async function onAdd() {
@@ -212,6 +232,36 @@ export default function EventDetail() {
                 Evento: <code>{eventId}</code>
             </div>
 
+            {/* Recomendación (Iteración 1) */}
+            {event && (
+                <div style={{ border: '1px solid #eee', borderRadius: 12, padding: 12, marginBottom: 14 }}>
+                    <div style={{ fontWeight: 900, marginBottom: 6 }}>Recomendación</div>
+                    <div style={{ opacity: 0.8, marginBottom: 10 }}>
+                        Para <strong>{event.adults_count}</strong> adultos y <strong>{event.minors_count}</strong> menores
+                    </div>
+
+                    <div style={{ display: 'grid', gap: 8 }}>
+                        {recs.map((r) => (
+                            <div
+                                key={r.key}
+                                style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    border: '1px solid #eee',
+                                    borderRadius: 10,
+                                    padding: '8px 10px',
+                                }}
+                            >
+                                <span style={{ fontWeight: 700 }}>{r.label}</span>
+                                <span style={{ fontWeight: 800 }}>
+                                    {formatRecAmount(r.target, r.unit)} {r.unit}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* Invites */}
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
                 <button
@@ -229,6 +279,7 @@ export default function EventDetail() {
                 )}
             </div>
 
+            {/* Add item */}
             <div style={{ display: 'grid', gap: 10, marginBottom: 16 }}>
                 <input
                     value={name}
@@ -349,18 +400,15 @@ export default function EventDetail() {
             </p>
 
             <hr style={{ margin: '16px 0' }} />
-            <h4>¿Quién ha puesto cuánto?</h4>
-
-            <hr style={{ margin: '16px 0' }} />
             <h4>Balance</h4>
 
             <div style={{ display: 'grid', gap: 8 }}>
                 {balances.map(({ uid, diff }) => {
                     if (Math.abs(diff) < 0.01) return null;
 
-                    const name =
-                        profiles[uid]?.display_name ??
-                        `Usuario ${uid.slice(0, 6)}`;
+                    const label = profiles[uid]?.display_name?.trim()
+                        ? profiles[uid]!.display_name!
+                        : `Invitado ${uid.slice(0, 4)}`;
 
                     return (
                         <div
@@ -374,24 +422,19 @@ export default function EventDetail() {
                             }}
                         >
                             {diff > 0 ? (
-                                <strong>{name}</strong>
+                                <>
+                                    <strong>{label}</strong> recibe <strong>${diff.toFixed(2)}</strong>
+                                </>
                             ) : (
-                                <span>{name}</span>
-                            )}{' '}
-                            {diff > 0 ? (
-                                <>recibe <strong>${diff.toFixed(2)}</strong></>
-                            ) : (
-                                <>debe <strong>${Math.abs(diff).toFixed(2)}</strong></>
+                                <>
+                                    {label} debe <strong>${Math.abs(diff).toFixed(2)}</strong>
+                                </>
                             )}
                         </div>
                     );
                 })}
 
-                {balances.every(b => Math.abs(b.diff) < 0.01) && (
-                    <div style={{ opacity: 0.7 }}>
-                        Todos están parejos 🤝
-                    </div>
-                )}
+                {balances.every((b) => Math.abs(b.diff) < 0.01) && <div style={{ opacity: 0.7 }}>Todos están parejos.</div>}
             </div>
 
             <hr style={{ margin: '16px 0' }} />
@@ -401,15 +444,13 @@ export default function EventDetail() {
                 {transfers.map((t, idx) => {
                     if (t.from === t.to) return null;
 
-                    const fromName =
-                        profiles[t.from]?.display_name?.trim()
-                            ? profiles[t.from]!.display_name!
-                            : `Invitado ${t.from.slice(0, 4)}`;
+                    const fromName = profiles[t.from]?.display_name?.trim()
+                        ? profiles[t.from]!.display_name!
+                        : `Invitado ${t.from.slice(0, 4)}`;
 
-                    const toName =
-                        profiles[t.to]?.display_name?.trim()
-                            ? profiles[t.to]!.display_name!
-                            : `Invitado ${t.to.slice(0, 4)}`;
+                    const toName = profiles[t.to]?.display_name?.trim()
+                        ? profiles[t.to]!.display_name!
+                        : `Invitado ${t.to.slice(0, 4)}`;
 
                     return (
                         <div
@@ -424,23 +465,14 @@ export default function EventDetail() {
                             }}
                         >
                             <span style={{ fontWeight: 700 }}>
-                                {fromName}{' '}
-                                <span style={{ opacity: 0.7, fontWeight: 600 }}>paga a</span>{' '}
-                                {toName}
+                                {fromName} <span style={{ opacity: 0.7, fontWeight: 600 }}>paga a</span> {toName}
                             </span>
-
-                            <span style={{ fontWeight: 800 }}>
-                                ${t.amount.toFixed(2)}
-                            </span>
+                            <span style={{ fontWeight: 800 }}>${t.amount.toFixed(2)}</span>
                         </div>
                     );
                 })}
 
-                {transfers.length === 0 && (
-                    <div style={{ opacity: 0.7 }}>
-                        Todo parejo. Nadie le debe a nadie.
-                    </div>
-                )}
+                {transfers.length === 0 && <div style={{ opacity: 0.7 }}>Todo parejo. Nadie le debe a nadie.</div>}
             </div>
 
             <hr style={{ margin: '16px 0' }} />
