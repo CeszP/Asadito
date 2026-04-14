@@ -407,7 +407,26 @@ export default function EventDetail() {
         <div style={{ padding: 16, maxWidth: 820, margin: '0 auto' }}>
 
             {/* ── Header del evento ── */}
-            <Button variant="ghost" onClick={() => navigate('/')}>← Volver</Button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <Button variant="ghost" onClick={() => navigate('/')}>← Volver</Button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {inviteUrl && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.88rem' }}>
+                            <span style={{ color: '#059669', fontWeight: 600 }}>✓ Link copiado</span>
+                            <button
+                                className="btn btn--sm"
+                                style={{ fontSize: '0.82rem' }}
+                                onClick={() => navigator.clipboard.writeText(inviteUrl).catch(() => {})}
+                            >
+                                Copiar de nuevo
+                            </button>
+                        </div>
+                    )}
+                    <Button size="sm" onClick={onCreateInvite} disabled={inviteLoading}>
+                        {inviteLoading ? 'Generando...' : 'Invitar'}
+                    </Button>
+                </div>
+            </div>
 
             <div style={{ marginTop: 10, marginBottom: 20 }}>
                 {eventLoading ? (
@@ -604,26 +623,8 @@ export default function EventDetail() {
                 </div>
             )}
 
-            {/* ── Invitación ── */}
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20, alignItems: 'center' }}>
-                <Button variant="primary" onClick={onCreateInvite} disabled={inviteLoading}>
-                    {inviteLoading ? 'Generando...' : 'Generar invitación'}
-                </Button>
-                {inviteUrl && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.88rem' }}>
-                        <span style={{ color: '#059669', fontWeight: 600 }}>✓ Link copiado</span>
-                        <button
-                            className="btn btn--sm"
-                            style={{ fontSize: '0.82rem' }}
-                            onClick={() => navigator.clipboard.writeText(inviteUrl).catch(() => {})}
-                        >
-                            Copiar de nuevo
-                        </button>
-                    </div>
-                )}
-            </div>
-
-            {/* ── Agregar ítem ── */}
+            {/* ── Lista de ítems ── */}
+            <h3 style={{ marginTop: 28, marginBottom: 14 }}>¿Qué llevamos?</h3>
             <div style={{ display: 'grid', gap: 10, marginBottom: 18 }}>
                 <Input
                     ref={nameInputRef}
@@ -632,25 +633,26 @@ export default function EventDetail() {
                     placeholder="Ej. Diezmillo, arrachera, Coca-Cola..."
                     onKeyDown={(e) => e.key === 'Enter' && onAdd()}
                 />
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <Input
                         value={qty}
                         onChange={(e) => setQty(e.target.value)}
-                        placeholder="Cantidad"
+                        placeholder="Cantidad (opcional)"
                         inputMode="decimal"
                         style={{ flex: 1 }}
                     />
-                    <select
-                        value={unit}
-                        onChange={(e) => setUnit(e.target.value as 'kg' | 'pz' | 'l' | '')}
-                        className="field__input"
-                        style={{ flex: 1 }}
-                    >
-                        <option value="">Unidad</option>
-                        <option value="kg">kg</option>
-                        <option value="pz">pz</option>
-                        <option value="l">l</option>
-                    </select>
+                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                        {(['kg', 'pz', 'l'] as const).map((u) => (
+                            <button
+                                key={u}
+                                className={`btn btn--sm ${unit === u ? 'btn--primary' : ''}`}
+                                style={{ borderRadius: 999, minWidth: 36 }}
+                                onClick={() => setUnit(unit === u ? '' : u)}
+                            >
+                                {u}
+                            </button>
+                        ))}
+                    </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {CATEGORIES.map((c) => (
