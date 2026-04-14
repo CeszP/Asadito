@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { CATEGORIES } from '../constants/categories';
 import type { Category } from '../constants/categories';
@@ -6,14 +6,13 @@ import type { ItemRow, ItemStatus } from '../types/db';
 import { useEventItems } from '../hooks/useEventItems';
 import { addItem, deleteItem, updateItemStatus, updateItemName } from '../lib/items';
 import { useEvent } from '../hooks/useEvent';
-import { buildRecommendations, formatRecAmount } from '../lib/recommendations';
+import { buildRecommendations, formatRecAmount, REC_TO_CATEGORY } from '../lib/recommendations';
+import { SUGGESTED_CUTS } from '../constants/suggestedCuts';
 import { createInvite } from '../lib/invites';
 import { useEventExpenses } from '../hooks/useEventExpenses';
 import { addExpense, deleteExpense } from '../lib/expenses';
 import { updateEvent, deleteEvent } from '../lib/events';
 import { useProfiles } from '../hooks/useProfiles';
-import { useEventRecommendations } from '../hooks/useEventRecommendations';
-import { createConsumptionDB } from '../lib/recommendations';
 import { useAuth } from '../hooks/useAuth';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
@@ -53,6 +52,7 @@ function formatEventDate(dateStr: string | null): string | null {
             month: 'long',
             hour: '2-digit',
             minute: '2-digit',
+            timeZone: 'UTC',
         }).format(new Date(dateStr));
     } catch {
         return null;
@@ -71,14 +71,20 @@ export default function EventDetail() {
     // All hooks at the top (no conditional hook calls)
     const { session } = useAuth();
     const { event, loading: eventLoading } = useEvent(eventId);
-    const { data: dbRecs, loading: recLoading, refresh: refreshRecs } = useEventRecommendations(eventId);
     const { items, loading: itemsLoading } = useEventItems(eventId);
     const { expenses, total } = useEventExpenses(eventId);
 
     const [name, setName] = useState('');
+    const [qty, setQty] = useState('');
+    const [unit, setUnit] = useState<'kg' | 'pz' | 'l' | ''>('');
+    const [isHomemade, setIsHomemade] = useState(false);
     const [category, setCategory] = useState<Category>(CATEGORIES[0]);
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState<string | null>(null);
+    const nameInputRef = useRef<HTMLInputElement>(null);
+
+    // Sugerencias de cortes expandidas
+    const [expandedRec, setExpandedRec] = useState<string | null>(null);
 
     const [inviteUrl, setInviteUrl] = useState<string | null>(null);
     const [inviteLoading, setInviteLoading] = useState(false);
@@ -131,6 +137,48 @@ export default function EventDetail() {
         const m = event?.minors_count ?? 0;
         return buildRecommendations(a, m);
     }, [event?.adults_count, event?.minors_count]);
+
+    // Progress: sum of item qty per category+unit combination
+    const itemQtyByCategory = useMemo(() => {
+        const map: Record<string, number> = {};
+        for (const it of items) {
+            if (it.qty && it.unit) {
+                const key = `${it.category}:${it.unit}`;
+                map[key] = (map[key] ?? 0) + it.qty;
+            }
+        }
+        return map;
+    }, [items]);
+
+    const recProgress = useMemo(() => {
+        const map: Record<string, number> = {};
+        for (const r of recs) {
+            const cat = REC_TO_CATEGORY[r.key];
+            map[r.key] = itemQtyByCategory[`${cat}:${r.unit}`] ?? 0;
+        }
+        return map;
+    }, [recs, itemQtyByCategory]);
+
+    // Categories that have a default recommendation
+    const defaultRecCategories = useMemo(
+        () => new Set(Object.values(REC_TO_CATEGORY)),
+        []
+    );
+
+    // Items marked as "hecho en casa" grouped by category
+    const homemadeByCategory = useMemo(() => {
+        const map: Record<string, boolean> = {};
+        for (const it of items) {
+            if (it.is_homemade) map[it.category] = true;
+        }
+        return map;
+    }, [items]);
+
+    // Items outside default rec categories that have qty+unit (shown as "Personalizados")
+    const customPlanItems = useMemo(() =>
+        items.filter(it => !defaultRecCategories.has(it.category) && it.qty != null && it.unit),
+        [items, defaultRecCategories]
+    );
 
     // Expenses breakdown
     const byUser = useMemo(() => {
@@ -194,14 +242,57 @@ export default function EventDetail() {
 
     // ─── Handlers ───────────────────────────────────────────
 
+    function prefillFromRec(r: { key: string; unit: 'kg' | 'pz' | 'l'; target: number }) {
+        const assigned = recProgress[r.key] ?? 0;
+        const remaining = Math.max(0, Math.round((r.target - assigned) * 100) / 100);
+        const cat = REC_TO_CATEGORY[r.key] as Category | undefined;
+        if (cat && CATEGORIES.includes(cat as Category)) setCategory(cat as Category);
+        setQty(remaining > 0 ? String(remaining) : '');
+        setUnit(r.unit);
+        setIsHomemade(false);
+        setName('');
+        setExpandedRec(null);
+        setTimeout(() => {
+            nameInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            nameInputRef.current?.focus();
+        }, 50);
+    }
+
+    async function quickAdd(recKey: string, cutName: string, cutQty: number, cutUnit: string) {
+        const cat = REC_TO_CATEGORY[recKey] as Category;
+        setErr(null);
+        try {
+            await addItem({
+                event_id: eventId,
+                name: cutName,
+                category: cat,
+                qty: cutQty,
+                unit: cutUnit,
+            });
+            setExpandedRec(null);
+        } catch (e: any) {
+            setErr(e?.message ?? 'No se pudo agregar.');
+        }
+    }
+
     async function onAdd() {
         setErr(null);
         const clean = name.trim();
         if (!clean) return;
         setSaving(true);
         try {
-            await addItem({ event_id: eventId, name: clean, category });
+            await addItem({
+                event_id: eventId,
+                name: clean,
+                category,
+                qty: qty ? Number(qty) : null,
+                unit: unit || null,
+                is_homemade: isHomemade,
+            });
             setName('');
+            setQty('');
+            setUnit('');
+            setIsHomemade(false);
         } catch (e: any) {
             setErr(e?.message ?? 'No se pudo agregar.');
         } finally {
@@ -379,85 +470,139 @@ export default function EventDetail() {
                         Para {event.adults_count} adultos y {event.minors_count} menores
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
-                        {recs.map((r) => (
-                            <div
-                                key={r.key}
-                                style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    padding: '7px 10px',
-                                    borderRadius: 8,
-                                    border: '1px solid var(--color-card-border)',
-                                }}
-                            >
-                                <span>{r.label}</span>
-                                <span style={{ fontWeight: 700 }}>
-                                    {formatRecAmount(r.target, r.unit)} {r.unit}
-                                </span>
-                            </div>
-                        ))}
+                        {recs.map((r) => {
+                            const assigned = recProgress[r.key] ?? 0;
+                            const remaining = Math.max(0, Math.round((r.target - assigned) * 100) / 100);
+                            const cat = REC_TO_CATEGORY[r.key];
+                            const isHM = homemadeByCategory[cat] ?? false;
+                            const covered = isHM || (assigned > 0 && remaining < 0.01);
+                            const cuts = SUGGESTED_CUTS[r.key];
+                            const isExpanded = expandedRec === r.key;
+
+                            return (
+                                <div
+                                    key={r.key}
+                                    style={{
+                                        padding: '8px 10px',
+                                        borderRadius: 8,
+                                        border: `1px solid ${covered ? 'rgba(5,150,105,0.4)' : 'var(--color-card-border)'}`,
+                                        background: covered ? 'rgba(5,150,105,0.06)' : undefined,
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ fontWeight: 600 }}>{r.label}</span>
+                                        <span style={{ fontWeight: 700 }}>
+                                            {formatRecAmount(r.target, r.unit)} {r.unit}
+                                        </span>
+                                    </div>
+
+                                    {/* Progreso */}
+                                    {(assigned > 0 || isHM) && (
+                                        <div style={{ fontSize: '0.82rem', marginTop: 3, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                                            {isHM
+                                                ? <span style={{ color: '#059669', fontWeight: 600 }}>✓ Hecho en casa</span>
+                                                : <>
+                                                    <span style={{ opacity: 0.7 }}>
+                                                        En lista: <strong>{formatRecAmount(assigned, r.unit)} {r.unit}</strong>
+                                                    </span>
+                                                    {covered
+                                                        ? <span style={{ color: '#059669', fontWeight: 600 }}>✓ Cubierto</span>
+                                                        : <span style={{ color: 'var(--color-danger)' }}>
+                                                            Falta: <strong>{formatRecAmount(remaining, r.unit)} {r.unit}</strong>
+                                                          </span>
+                                                    }
+                                                </>
+                                            }
+                                        </div>
+                                    )}
+
+                                    {/* Botón agregar / toggle cortes */}
+                                    <Button
+                                        size="sm" variant="ghost"
+                                        style={{ marginTop: 4, fontSize: '0.82rem' }}
+                                        onClick={() => cuts
+                                            ? setExpandedRec(isExpanded ? null : r.key)
+                                            : prefillFromRec(r)
+                                        }
+                                    >
+                                        {cuts ? (isExpanded ? '▲ Cerrar' : '+ Agregar al plan') : '+ Agregar al plan'}
+                                    </Button>
+
+                                    {/* Panel de cortes sugeridos */}
+                                    {isExpanded && cuts && (
+                                        <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+                                            <div style={{ fontSize: '0.8rem', opacity: 0.6, marginBottom: 2 }}>
+                                                Sugerencias ({formatRecAmount(remaining, r.unit)} {r.unit} restantes):
+                                            </div>
+                                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                                {cuts.map((cut) => {
+                                                    const cutQty = Math.max(0.01, Math.round(cut.pct * (remaining > 0 ? remaining : r.target) * 100) / 100);
+                                                    return (
+                                                        <button
+                                                            key={cut.name}
+                                                            className="btn btn--sm"
+                                                            style={{ borderRadius: 999, fontSize: '0.82rem' }}
+                                                            onClick={() => quickAdd(r.key, cut.name, cutQty, r.unit)}
+                                                        >
+                                                            + {cut.name} ({formatRecAmount(cutQty, r.unit)} {r.unit})
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                            <Button
+                                                size="sm" variant="ghost"
+                                                style={{ fontSize: '0.82rem', paddingLeft: 0 }}
+                                                onClick={() => prefillFromRec(r)}
+                                            >
+                                                Otro / personalizado →
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+
+                        {/* Personalizados: ítems de Bebidas/Extras con qty */}
+                        {customPlanItems.length > 0 && (
+                            <>
+                                <div style={{ fontSize: '0.8rem', opacity: 0.55, marginTop: 4, marginBottom: 2, fontWeight: 600 }}>
+                                    PERSONALIZADOS
+                                </div>
+                                {customPlanItems.map((it) => {
+                                    const done = it.status === 'delivered' || it.status === 'bought' || it.is_homemade;
+                                    return (
+                                        <div
+                                            key={it.id}
+                                            style={{
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                padding: '8px 10px',
+                                                borderRadius: 8,
+                                                border: `1px solid ${done ? 'rgba(5,150,105,0.4)' : 'var(--color-card-border)'}`,
+                                                background: done ? 'rgba(5,150,105,0.06)' : undefined,
+                                            }}
+                                        >
+                                            <span style={{ fontWeight: 600 }}>
+                                                {it.name}
+                                                <span style={{ fontWeight: 400, opacity: 0.65, marginLeft: 6 }}>
+                                                    {it.unit === 'pz' ? Math.round(it.qty!) : Number(it.qty).toFixed(2)} {it.unit}
+                                                </span>
+                                            </span>
+                                            {done
+                                                ? <span style={{ color: '#059669', fontSize: '0.82rem', fontWeight: 600 }}>
+                                                    {it.is_homemade ? '✓ Hecho en casa' : '✓ Cubierto'}
+                                                  </span>
+                                                : <span style={{ opacity: 0.55, fontSize: '0.82rem' }}>Pendiente</span>
+                                            }
+                                        </div>
+                                    );
+                                })}
+                            </>
+                        )}
                     </div>
                 </div>
             )}
-
-            {/* ── Recomendaciones DB ── */}
-            <div className="card" style={{ marginBottom: 14 }}>
-                <div style={{ fontWeight: 900, marginBottom: 4 }}>Inventario y consumo</div>
-                <div className="event-meta" style={{ marginBottom: 10 }}>
-                    Aplican adultos/menores por ítem, merma y lo que ya tienes.
-                </div>
-
-                {recLoading && <Loading text="Cargando recomendaciones..." />}
-
-                {!recLoading && dbRecs.length === 0 && (
-                    <div style={{ opacity: 0.65 }}>Aún no hay ítems configurados para recomendaciones.</div>
-                )}
-
-                <div style={{ display: 'grid', gap: 8 }}>
-                    {dbRecs.map((r) => (
-                        <div
-                            key={r.item_id}
-                            style={{
-                                display: 'grid',
-                                gap: 6,
-                                padding: '10px',
-                                borderRadius: 10,
-                                border: '1px solid var(--color-card-border)',
-                            }}
-                        >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-                                <span style={{ fontWeight: 700 }}>{r.name}</span>
-                                <span style={{ fontWeight: 700 }}>
-                                    {Number(r.recommended_qty).toFixed(2)} {r.unit}
-                                </span>
-                            </div>
-                            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', opacity: 0.8, fontSize: '0.88rem' }}>
-                                <span>Comprado: <strong>{Number(r.on_hand_qty).toFixed(2)}</strong></span>
-                                <span>Consumido: <strong>{Number(r.consumed_qty).toFixed(2)}</strong></span>
-                                <span>Faltante: <strong>{Number(r.need_to_buy_qty).toFixed(2)}</strong></span>
-                            </div>
-                            <div style={{ display: 'flex', gap: 8 }}>
-                                <Button
-                                    size="sm"
-                                    variant="primary"
-                                    disabled={Number(r.on_hand_qty) <= 0}
-                                    onClick={async () => {
-                                        await createConsumptionDB({
-                                            event_id: eventId,
-                                            consumption_item_id: r.item_id,
-                                            qty: 1,
-                                        });
-                                        await refreshRecs();
-                                    }}
-                                >
-                                    Consumir 1
-                                </Button>
-                                <Button size="sm" onClick={refreshRecs}>Refrescar</Button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
 
             {/* ── Invitación ── */}
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20, alignItems: 'center' }}>
@@ -474,11 +619,32 @@ export default function EventDetail() {
             {/* ── Agregar ítem ── */}
             <div style={{ display: 'grid', gap: 10, marginBottom: 18 }}>
                 <Input
+                    ref={nameInputRef}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Ej. Tortillas, carbón, salsa..."
+                    placeholder="Ej. Diezmillo, arrachera, Coca-Cola..."
                     onKeyDown={(e) => e.key === 'Enter' && onAdd()}
                 />
+                <div style={{ display: 'flex', gap: 8 }}>
+                    <Input
+                        value={qty}
+                        onChange={(e) => setQty(e.target.value)}
+                        placeholder="Cantidad"
+                        inputMode="decimal"
+                        style={{ flex: 1 }}
+                    />
+                    <select
+                        value={unit}
+                        onChange={(e) => setUnit(e.target.value as 'kg' | 'pz' | 'l' | '')}
+                        className="field__input"
+                        style={{ flex: 1 }}
+                    >
+                        <option value="">Unidad</option>
+                        <option value="kg">kg</option>
+                        <option value="pz">pz</option>
+                        <option value="l">l</option>
+                    </select>
+                </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {CATEGORIES.map((c) => (
                         <button
@@ -495,6 +661,15 @@ export default function EventDetail() {
                         </button>
                     ))}
                 </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.9rem', cursor: 'pointer' }}>
+                    <input
+                        type="checkbox"
+                        checked={isHomemade}
+                        onChange={(e) => setIsHomemade(e.target.checked)}
+                        style={{ width: 16, height: 16, cursor: 'pointer' }}
+                    />
+                    Se prepara en casa
+                </label>
                 <Button variant="primary" onClick={onAdd} disabled={saving}>
                     {saving ? 'Agregando...' : 'Agregar ítem'}
                 </Button>
@@ -539,8 +714,9 @@ export default function EventDetail() {
                                         gap: 10,
                                         padding: '8px 10px',
                                         borderRadius: 8,
-                                        border: '1px solid var(--color-card-border)',
-                                        ...statusStyle(it.status),
+                                        border: `1px solid ${it.is_homemade ? 'rgba(5,150,105,0.4)' : 'var(--color-card-border)'}`,
+                                        background: it.is_homemade ? 'rgba(5,150,105,0.06)' : undefined,
+                                        ...(it.is_homemade ? {} : statusStyle(it.status)),
                                     }}
                                 >
                                     {editingItemId === it.id ? (
@@ -557,15 +733,26 @@ export default function EventDetail() {
                                         </div>
                                     ) : (
                                         <div>
-                                            <div style={{ fontWeight: 600 }}>{it.name}</div>
-                                            <div style={{ fontSize: '0.82rem', opacity: 0.7 }}>{statusLabel(it.status)}</div>
+                                            <div style={{ fontWeight: 600 }}>
+                                                {it.name}
+                                                {it.qty != null && it.unit && (
+                                                    <span style={{ fontWeight: 400, opacity: 0.65, marginLeft: 6 }}>
+                                                        {it.unit === 'pz' ? Math.round(it.qty) : it.qty.toFixed(2)} {it.unit}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div style={{ fontSize: '0.82rem', opacity: 0.7 }}>
+                                                {it.is_homemade ? '✓ Hecho en casa' : statusLabel(it.status)}
+                                            </div>
                                         </div>
                                     )}
                                     {editingItemId !== it.id && (
                                         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                                            <Button size="sm" variant="primary" onClick={() => onToggle(it)}>
-                                                {nextStatusLabel(it.status)}
-                                            </Button>
+                                            {!it.is_homemade && (
+                                                <Button size="sm" variant="primary" onClick={() => onToggle(it)}>
+                                                    {nextStatusLabel(it.status)}
+                                                </Button>
+                                            )}
                                             {isOwner && (
                                                 <Button size="sm" onClick={() => { setEditingItemId(it.id); setEditingItemName(it.name); }}>
                                                     Editar

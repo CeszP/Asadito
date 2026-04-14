@@ -16,6 +16,7 @@ function formatEventDate(dateStr: string | null): string | null {
             month: 'short',
             hour: '2-digit',
             minute: '2-digit',
+            timeZone: 'UTC',
         }).format(new Date(dateStr));
     } catch {
         return null;

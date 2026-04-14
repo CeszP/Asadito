@@ -27,14 +27,13 @@ export function buildRecommendations(
 
   // Tabla base (MVP). Ajustable después.
   const table: Array<Omit<Recommendation, "target"> & { perEq: number }> = [
-    { key: "carne", label: "Carne", unit: "kg", perEq: 0.35 },
-    { key: "tortillas", label: "Tortillas", unit: "pz", perEq: 4 },
-    { key: "salsa", label: "Salsa", unit: "l", perEq: 0.06 },
-    { key: "frijoles", label: "Frijoles", unit: "kg", perEq: 0.12 },
-    { key: "carbon", label: "Carbón", unit: "kg", perEq: 0.18 },
-    { key: "platos", label: "Platos", unit: "pz", perEq: 1.2 },
-    { key: "vasos", label: "Vasos", unit: "pz", perEq: 2 },
-    { key: "hielo", label: "Hielo", unit: "kg", perEq: 0.25 },
+    { key: "carne",        label: "Carne",        unit: "kg", perEq: 0.35 },
+    { key: "tortillas",    label: "Tortillas",    unit: "pz", perEq: 4 },
+    { key: "salsa",        label: "Salsas",       unit: "l",  perEq: 0.06 },
+    { key: "frijoles",     label: "Frijoles",     unit: "kg", perEq: 0.12 },
+    { key: "carbon",       label: "Carbón",       unit: "kg", perEq: 0.18 },
+    { key: "desechables",  label: "Desechables",  unit: "pz", perEq: 3.2 },
+    { key: "hielo",        label: "Hielo",        unit: "kg", perEq: 0.25 },
   ];
 
   return table.map((x) => ({
@@ -50,6 +49,17 @@ export function formatRecAmount(n: number, unit: RecUnit) {
   if (unit === "pz") return `${Math.round(n)}`;
   return n.toFixed(2);
 }
+
+/** Maps a recommendation key to its matching item category name */
+export const REC_TO_CATEGORY: Record<string, string> = {
+  carne:       "Carne",
+  tortillas:   "Tortillas",
+  salsa:       "Salsas",
+  frijoles:    "Frijoles",
+  carbon:      "Carbón",
+  desechables: "Desechables",
+  hielo:       "Hielos",
+};
 
 import { supabase } from "./supabase";
 

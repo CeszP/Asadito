@@ -1,10 +1,12 @@
 export const CATEGORIES = [
   "Carne",
-  "Bebidas",
+  "Tortillas",
   "Salsas",
-  "Desechables",
-  "Hielos",
+  "Frijoles",
   "Carbón",
+  "Hielos",
+  "Desechables",
+  "Bebidas",
   "Extras",
 ] as const;
 

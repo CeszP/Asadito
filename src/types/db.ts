@@ -31,6 +31,7 @@ export type ItemRow = {
   unit: string | null;
   assigned_to: string | null;
   status: ItemStatus;
+  is_homemade: boolean;
   created_by: string;
   created_at: string;
 };

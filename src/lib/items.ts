@@ -7,6 +7,7 @@ export async function addItem(params: {
   category: string;
   qty?: number | null;
   unit?: string | null;
+  is_homemade?: boolean;
 }) {
   const { data: userData, error: userErr } = await supabase.auth.getUser();
   if (userErr) throw userErr;
@@ -19,6 +20,7 @@ export async function addItem(params: {
     category: params.category,
     qty: params.qty ?? null,
     unit: params.unit ?? null,
+    is_homemade: params.is_homemade ?? false,
     created_by: uid,
     status: "pending",
   });
