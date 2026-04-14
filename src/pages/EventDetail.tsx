@@ -4,13 +4,22 @@ import { CATEGORIES } from '../constants/categories';
 import type { Category } from '../constants/categories';
 import type { ItemRow, ItemStatus } from '../types/db';
 import { useEventItems } from '../hooks/useEventItems';
-import { addItem, deleteItem, updateItemStatus } from '../lib/items';
+import { addItem, deleteItem, updateItemStatus, updateItemName } from '../lib/items';
 import { useEvent } from '../hooks/useEvent';
 import { buildRecommendations, formatRecAmount } from '../lib/recommendations';
 import { createInvite } from '../lib/invites';
 import { useEventExpenses } from '../hooks/useEventExpenses';
 import { addExpense, deleteExpense } from '../lib/expenses';
+import { updateEvent, deleteEvent } from '../lib/events';
 import { useProfiles } from '../hooks/useProfiles';
+import { useEventRecommendations } from '../hooks/useEventRecommendations';
+import { createConsumptionDB } from '../lib/recommendations';
+import { useAuth } from '../hooks/useAuth';
+import { Button } from '../components/Button';
+import { Input } from '../components/Input';
+import { Loading } from '../components/Loading';
+
+// ─── Helpers ────────────────────────────────────────────────
 
 function nextStatus(s: ItemStatus): ItemStatus {
     if (s === 'pending') return 'bought';
@@ -21,66 +30,109 @@ function nextStatus(s: ItemStatus): ItemStatus {
 function statusLabel(s: ItemStatus) {
     if (s === 'pending') return 'Pendiente';
     if (s === 'bought') return 'Comprado';
-    return 'Listo';
+    return 'Listo ✓';
+}
+
+function nextStatusLabel(s: ItemStatus) {
+    if (s === 'pending') return 'Marcar comprado';
+    if (s === 'bought') return 'Marcar listo';
+    return 'Reabrir';
+}
+
+function statusStyle(s: ItemStatus): React.CSSProperties {
+    if (s === 'delivered') return { opacity: 0.55, textDecoration: 'line-through' };
+    return {};
+}
+
+function formatEventDate(dateStr: string | null): string | null {
+    if (!dateStr) return null;
+    try {
+        return new Intl.DateTimeFormat('es-MX', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+            hour: '2-digit',
+            minute: '2-digit',
+        }).format(new Date(dateStr));
+    } catch {
+        return null;
+    }
 }
 
 type Transfer = { from: string; to: string; amount: number };
+
+// ─── Component ──────────────────────────────────────────────
 
 export default function EventDetail() {
     const { id } = useParams();
     const eventId = id ?? '';
     const navigate = useNavigate();
 
-    if (!eventId) {
-        return (
-            <div style={{ padding: 16 }}>
-                <p>Evento inválido.</p>
-                <button onClick={() => navigate('/')} style={{ padding: 10, borderRadius: 10, border: '1px solid #ccc' }}>
-                    Ir a eventos
-                </button>
-            </div>
-        );
-    }
-
-
-
-    // Event meta (adult/minors)
-    const { event } = useEvent(eventId);
-
-    <div style={{ opacity: 0.75, marginBottom: 10 }}>
-        debug: event? {event ? 'sí' : 'no'} | adults={String(event?.adults_count)} | minors={String(event?.minors_count)}
-    </div>
-    const recs = useMemo(() => {
-        const a = event?.adults_count ?? 0;
-        const m = event?.minors_count ?? 0;
-        return buildRecommendations(a, m);
-    }, [event?.adults_count, event?.minors_count]);
-
-    // Items
-    const { items, loading } = useEventItems(eventId);
+    // All hooks at the top (no conditional hook calls)
+    const { session } = useAuth();
+    const { event, loading: eventLoading } = useEvent(eventId);
+    const { data: dbRecs, loading: recLoading, refresh: refreshRecs } = useEventRecommendations(eventId);
+    const { items, loading: itemsLoading } = useEventItems(eventId);
+    const { expenses, total } = useEventExpenses(eventId);
 
     const [name, setName] = useState('');
     const [category, setCategory] = useState<Category>(CATEGORIES[0]);
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState<string | null>(null);
 
-    // Invites
     const [inviteUrl, setInviteUrl] = useState<string | null>(null);
     const [inviteLoading, setInviteLoading] = useState(false);
 
-    // Expenses
-    const { expenses, total } = useEventExpenses(eventId);
     const [amount, setAmount] = useState('');
     const [note, setNote] = useState('');
     const [expenseErr, setExpenseErr] = useState<string | null>(null);
     const [expenseSaving, setExpenseSaving] = useState(false);
 
+    // Editar título del evento
+    const [localTitle, setLocalTitle] = useState<string | null>(null);
+    const [editingTitle, setEditingTitle] = useState(false);
+    const [editTitle, setEditTitle] = useState('');
+
+    // Editar ítem inline
+    const [editingItemId, setEditingItemId] = useState<string | null>(null);
+    const [editingItemName, setEditingItemName] = useState('');
+
+    // Filtro de ítems
+    const [statusFilter, setStatusFilter] = useState<ItemStatus | 'all'>('all');
+
+    // Eliminar evento
+    const [deletingEvent, setDeletingEvent] = useState(false);
+
+    // Owner detection
+    const isOwner = !!session && !!event && event.created_by === session.user.id;
+
+    // Filtered + grouped items
+    const filteredItems = useMemo(() => {
+        if (statusFilter === 'all') return items;
+        return items.filter((it) => it.status === statusFilter);
+    }, [items, statusFilter]);
+
+    const statusCounts = useMemo(() => ({
+        all: items.length,
+        pending: items.filter((it) => it.status === 'pending').length,
+        bought: items.filter((it) => it.status === 'bought').length,
+        delivered: items.filter((it) => it.status === 'delivered').length,
+    }), [items]);
+
     const grouped = useMemo(() => {
         const map: Record<string, ItemRow[]> = {};
-        for (const it of items) (map[it.category] ??= []).push(it);
+        for (const it of filteredItems) (map[it.category] ??= []).push(it);
         return map;
-    }, [items]);
+    }, [filteredItems]);
 
+    // Static recommendations
+    const recs = useMemo(() => {
+        const a = event?.adults_count ?? 0;
+        const m = event?.minors_count ?? 0;
+        return buildRecommendations(a, m);
+    }, [event?.adults_count, event?.minors_count]);
+
+    // Expenses breakdown
     const byUser = useMemo(() => {
         const map = new Map<string, number>();
         for (const e of expenses) {
@@ -92,17 +144,11 @@ export default function EventDetail() {
     const balances = useMemo(() => {
         if (byUser.length === 0) return [];
         const perPerson = total / byUser.length;
-
-        return byUser.map(([uid, amt]) => ({
-            uid,
-            paid: amt,
-            diff: amt - perPerson,
-        }));
+        return byUser.map(([uid, amt]) => ({ uid, paid: amt, diff: amt - perPerson }));
     }, [byUser, total]);
 
     const transfers = useMemo<Transfer[]>(() => {
         if (byUser.length === 0) return [];
-
         const perPerson = total / byUser.length;
         const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -125,14 +171,12 @@ export default function EventDetail() {
         while (i < debtors.length && j < creditors.length) {
             const d = debtors[i];
             const c = creditors[j];
-
             const pay = Math.min(d.amt, c.amt);
             if (pay > 0.009) {
                 out.push({ from: d.uid, to: c.uid, amount: round2(pay) });
                 d.amt = round2(d.amt - pay);
                 c.amt = round2(c.amt - pay);
             }
-
             if (d.amt <= 0.009) i++;
             if (c.amt <= 0.009) j++;
         }
@@ -148,11 +192,12 @@ export default function EventDetail() {
 
     const profiles = useProfiles(userIds);
 
+    // ─── Handlers ───────────────────────────────────────────
+
     async function onAdd() {
         setErr(null);
         const clean = name.trim();
         if (!clean) return;
-
         setSaving(true);
         try {
             await addItem({ event_id: eventId, name: clean, category });
@@ -186,15 +231,10 @@ export default function EventDetail() {
         setErr(null);
         setInviteLoading(true);
         try {
-            const inv = await createInvite(eventId, 1440); // 24h
+            const inv = await createInvite(eventId, 1440);
             const url = `${window.location.origin}/join/${inv.code}`;
             setInviteUrl(url);
-
-            try {
-                await navigator.clipboard.writeText(url);
-            } catch {
-                // no-op
-            }
+            try { await navigator.clipboard.writeText(url); } catch { /* no-op */ }
         } catch (e: any) {
             setErr(e?.message ?? 'No se pudo generar invitación.');
         } finally {
@@ -202,20 +242,51 @@ export default function EventDetail() {
         }
     }
 
+    async function onSaveTitle() {
+        const clean = editTitle.trim();
+        if (!clean) return;
+        try {
+            await updateEvent(eventId, { title: clean });
+            setLocalTitle(clean);
+            setEditingTitle(false);
+        } catch (e: any) {
+            setErr(e?.message ?? 'No se pudo renombrar el evento.');
+        }
+    }
+
+    async function onSaveItemName(it: ItemRow) {
+        const clean = editingItemName.trim();
+        if (!clean || clean === it.name) { setEditingItemId(null); return; }
+        try {
+            await updateItemName(it.id, clean);
+            setEditingItemId(null);
+        } catch (e: any) {
+            setErr(e?.message ?? 'No se pudo renombrar el ítem.');
+        }
+    }
+
+    async function onDeleteEvent() {
+        if (!window.confirm('¿Eliminar este evento? Esta acción no se puede deshacer.')) return;
+        setDeletingEvent(true);
+        try {
+            await deleteEvent(eventId);
+            navigate('/');
+        } catch (e: any) {
+            setErr(e?.message ?? 'No se pudo eliminar el evento.');
+            setDeletingEvent(false);
+        }
+    }
+
     async function onAddExpense() {
         setExpenseErr(null);
-
         const amt = Number(amount);
-        const cleanNote = note.trim();
-
         if (!Number.isFinite(amt) || amt <= 0) {
             setExpenseErr('Ingresa un monto válido.');
             return;
         }
-
         setExpenseSaving(true);
         try {
-            await addExpense(eventId, amt, cleanNote || undefined);
+            await addExpense(eventId, amt, note.trim() || undefined);
             setAmount('');
             setNote('');
         } catch (e: any) {
@@ -225,40 +296,102 @@ export default function EventDetail() {
         }
     }
 
+    // ─── Guard ───────────────────────────────────────────────
+
+    if (!eventId) {
+        return (
+            <div style={{ padding: 16 }}>
+                <p>Evento inválido.</p>
+                <Button onClick={() => navigate('/')}>Ir a eventos</Button>
+            </div>
+        );
+    }
+
+    const displayName = (uid: string) =>
+        profiles[uid]?.display_name?.trim() || `Invitado ${uid.slice(0, 4)}`;
+
+    // ─── Render ──────────────────────────────────────────────
+
     return (
         <div style={{ padding: 16, maxWidth: 820, margin: '0 auto' }}>
-            <button onClick={() => navigate('/')} style={{ padding: 10, borderRadius: 10, border: '1px solid #ccc' }}>
-                ← Volver
-            </button>
 
-            <h2 style={{ marginTop: 14, marginBottom: 8 }}>Checklist</h2>
+            {/* ── Header del evento ── */}
+            <Button variant="ghost" onClick={() => navigate('/')}>← Volver</Button>
 
-            <div style={{ opacity: 0.75, marginBottom: 12 }}>
-                Evento: <code>{eventId}</code>
+            <div style={{ marginTop: 10, marginBottom: 20 }}>
+                {eventLoading ? (
+                    <Loading text="Cargando evento..." />
+                ) : (
+                    <>
+                        {editingTitle ? (
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+                                <Input
+                                    value={editTitle}
+                                    onChange={(e) => setEditTitle(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') onSaveTitle(); if (e.key === 'Escape') setEditingTitle(false); }}
+                                    autoFocus
+                                    style={{ minWidth: 200 }}
+                                />
+                                <Button size="sm" variant="primary" onClick={onSaveTitle}>Guardar</Button>
+                                <Button size="sm" onClick={() => setEditingTitle(false)}>Cancelar</Button>
+                            </div>
+                        ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <h2 style={{ margin: 0 }}>
+                                    {localTitle ?? event?.title ?? 'Evento'}
+                                </h2>
+                                {isOwner && <span className="badge">Organizador</span>}
+                                {isOwner && (
+                                    <Button size="sm" variant="ghost" onClick={() => { setEditTitle(localTitle ?? event?.title ?? ''); setEditingTitle(true); }}>
+                                        ✏️ Renombrar
+                                    </Button>
+                                )}
+                            </div>
+                        )}
+                        <div className="event-meta">
+                            {event?.adults_count ?? 0} adultos · {event?.minors_count ?? 0} menores
+                        </div>
+                        {event?.event_datetime && (
+                            <div className="event-meta">🗓 {formatEventDate(event.event_datetime)}</div>
+                        )}
+                        {event?.location_text && (
+                            <div className="event-meta">📍 {event.location_text}</div>
+                        )}
+                        {isOwner && (
+                            <Button
+                                size="sm" variant="danger"
+                                style={{ marginTop: 10 }}
+                                onClick={onDeleteEvent}
+                                disabled={deletingEvent}
+                            >
+                                {deletingEvent ? 'Eliminando...' : 'Eliminar evento'}
+                            </Button>
+                        )}
+                    </>
+                )}
             </div>
 
-            {/* Recomendación (Iteración 1) */}
+            {/* ── Recomendación estática ── */}
             {event && (
-                <div style={{ border: '1px solid #eee', borderRadius: 12, padding: 12, marginBottom: 14 }}>
-                    <div style={{ fontWeight: 900, marginBottom: 6 }}>Recomendación</div>
-                    <div style={{ opacity: 0.8, marginBottom: 10 }}>
-                        Para <strong>{event.adults_count}</strong> adultos y <strong>{event.minors_count}</strong> menores
+                <div className="card" style={{ marginBottom: 14 }}>
+                    <div style={{ fontWeight: 900, marginBottom: 6 }}>Cantidades sugeridas</div>
+                    <div className="event-meta" style={{ marginBottom: 10 }}>
+                        Para {event.adults_count} adultos y {event.minors_count} menores
                     </div>
-
-                    <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ display: 'grid', gap: 6 }}>
                         {recs.map((r) => (
                             <div
                                 key={r.key}
                                 style={{
                                     display: 'flex',
                                     justifyContent: 'space-between',
-                                    border: '1px solid #eee',
-                                    borderRadius: 10,
-                                    padding: '8px 10px',
+                                    padding: '7px 10px',
+                                    borderRadius: 8,
+                                    border: '1px solid var(--color-card-border)',
                                 }}
                             >
-                                <span style={{ fontWeight: 700 }}>{r.label}</span>
-                                <span style={{ fontWeight: 800 }}>
+                                <span>{r.label}</span>
+                                <span style={{ fontWeight: 700 }}>
                                     {formatRecAmount(r.target, r.unit)} {r.unit}
                                 </span>
                             </div>
@@ -267,262 +400,343 @@ export default function EventDetail() {
                 </div>
             )}
 
-            {/* Invites */}
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
-                <button
-                    onClick={onCreateInvite}
-                    disabled={inviteLoading}
-                    style={{ padding: 10, borderRadius: 10, border: '1px solid #000', fontWeight: 800 }}
-                >
-                    {inviteLoading ? 'Generando...' : 'Generar invitación'}
-                </button>
+            {/* ── Recomendaciones DB ── */}
+            <div className="card" style={{ marginBottom: 14 }}>
+                <div style={{ fontWeight: 900, marginBottom: 4 }}>Inventario y consumo</div>
+                <div className="event-meta" style={{ marginBottom: 10 }}>
+                    Aplican adultos/menores por ítem, merma y lo que ya tienes.
+                </div>
 
+                {recLoading && <Loading text="Cargando recomendaciones..." />}
+
+                {!recLoading && dbRecs.length === 0 && (
+                    <div style={{ opacity: 0.65 }}>Aún no hay ítems configurados para recomendaciones.</div>
+                )}
+
+                <div style={{ display: 'grid', gap: 8 }}>
+                    {dbRecs.map((r) => (
+                        <div
+                            key={r.item_id}
+                            style={{
+                                display: 'grid',
+                                gap: 6,
+                                padding: '10px',
+                                borderRadius: 10,
+                                border: '1px solid var(--color-card-border)',
+                            }}
+                        >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                                <span style={{ fontWeight: 700 }}>{r.name}</span>
+                                <span style={{ fontWeight: 700 }}>
+                                    {Number(r.recommended_qty).toFixed(2)} {r.unit}
+                                </span>
+                            </div>
+                            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', opacity: 0.8, fontSize: '0.88rem' }}>
+                                <span>Comprado: <strong>{Number(r.on_hand_qty).toFixed(2)}</strong></span>
+                                <span>Consumido: <strong>{Number(r.consumed_qty).toFixed(2)}</strong></span>
+                                <span>Faltante: <strong>{Number(r.need_to_buy_qty).toFixed(2)}</strong></span>
+                            </div>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                <Button
+                                    size="sm"
+                                    variant="primary"
+                                    disabled={Number(r.on_hand_qty) <= 0}
+                                    onClick={async () => {
+                                        await createConsumptionDB({
+                                            event_id: eventId,
+                                            consumption_item_id: r.item_id,
+                                            qty: 1,
+                                        });
+                                        await refreshRecs();
+                                    }}
+                                >
+                                    Consumir 1
+                                </Button>
+                                <Button size="sm" onClick={refreshRecs}>Refrescar</Button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* ── Invitación ── */}
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20, alignItems: 'center' }}>
+                <Button variant="primary" onClick={onCreateInvite} disabled={inviteLoading}>
+                    {inviteLoading ? 'Generando...' : 'Generar invitación'}
+                </Button>
                 {inviteUrl && (
-                    <div style={{ opacity: 0.85, wordBreak: 'break-all' }}>
-                        Link (copiado si tu navegador lo permitió): <code>{inviteUrl}</code>
+                    <div style={{ opacity: 0.8, wordBreak: 'break-all', fontSize: '0.88rem' }}>
+                        ✓ Link copiado: <code>{inviteUrl}</code>
                     </div>
                 )}
             </div>
 
-            {/* Add item */}
-            <div style={{ display: 'grid', gap: 10, marginBottom: 16 }}>
-                <input
+            {/* ── Agregar ítem ── */}
+            <div style={{ display: 'grid', gap: 10, marginBottom: 18 }}>
+                <Input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Ej. Tortillas, carbón, salsa..."
-                    style={{ padding: 12, borderRadius: 10, border: '1px solid #ccc' }}
+                    onKeyDown={(e) => e.key === 'Enter' && onAdd()}
                 />
-
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {CATEGORIES.map((c) => (
                         <button
                             key={c}
                             onClick={() => setCategory(c)}
+                            className="btn btn--sm"
                             style={{
-                                padding: '10px 12px',
                                 borderRadius: 999,
-                                border: '1px solid #ccc',
-                                fontWeight: 700,
-                                opacity: category === c ? 1 : 0.55,
+                                opacity: category === c ? 1 : 0.5,
+                                fontWeight: category === c ? 700 : 500,
                             }}
                         >
                             {c}
                         </button>
                     ))}
                 </div>
-
-                <button
-                    onClick={onAdd}
-                    disabled={saving}
-                    style={{ padding: 12, borderRadius: 10, border: '1px solid #000', fontWeight: 700 }}
-                >
-                    {saving ? 'Agregando...' : 'Agregar'}
-                </button>
-
-                {err && <div style={{ color: 'crimson' }}>{err}</div>}
+                <Button variant="primary" onClick={onAdd} disabled={saving}>
+                    {saving ? 'Agregando...' : 'Agregar ítem'}
+                </Button>
+                {err && <div className="msg-error">{err}</div>}
             </div>
 
-            {loading && <div>Cargando lista...</div>}
+            {/* ── Filtro de ítems ── */}
+            {!itemsLoading && items.length > 0 && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+                    {(['all', 'pending', 'bought', 'delivered'] as const).map((f) => {
+                        const labels = { all: 'Todos', pending: 'Pendiente', bought: 'Comprado', delivered: 'Listo' };
+                        const count = statusCounts[f];
+                        return (
+                            <button
+                                key={f}
+                                className={`btn btn--sm ${statusFilter === f ? 'btn--primary' : ''}`}
+                                style={{ borderRadius: 999 }}
+                                onClick={() => setStatusFilter(f)}
+                            >
+                                {labels[f]} {count > 0 && <span style={{ opacity: 0.7 }}>({count})</span>}
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
 
-            <div style={{ display: 'grid', gap: 14 }}>
+            {/* ── Lista de ítems ── */}
+            {itemsLoading && <Loading text="Cargando lista..." />}
+
+            <div style={{ display: 'grid', gap: 12 }}>
                 {CATEGORIES.filter((c) => (grouped[c] ?? []).length > 0).map((cat) => (
-                    <div key={cat} style={{ border: '1px solid #eee', borderRadius: 12, padding: 12 }}>
+                    <div key={cat} className="card">
                         <div style={{ fontWeight: 800, marginBottom: 8 }}>{cat}</div>
-
-                        <div style={{ display: 'grid', gap: 8 }}>
+                        <div style={{ display: 'grid', gap: 6 }}>
                             {(grouped[cat] ?? []).map((it) => (
                                 <div
                                     key={it.id}
                                     style={{
-                                        border: '1px solid #ddd',
-                                        borderRadius: 12,
-                                        padding: 10,
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'space-between',
                                         gap: 10,
+                                        padding: '8px 10px',
+                                        borderRadius: 8,
+                                        border: '1px solid var(--color-card-border)',
+                                        ...statusStyle(it.status),
                                     }}
                                 >
-                                    <div>
-                                        <div style={{ fontWeight: 800 }}>{it.name}</div>
-                                        <div style={{ opacity: 0.75 }}>Estatus: {statusLabel(it.status)}</div>
-                                    </div>
-
-                                    <div style={{ display: 'flex', gap: 8 }}>
-                                        <button
-                                            onClick={() => onToggle(it)}
-                                            style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #000', fontWeight: 700 }}
-                                        >
-                                            Cambiar
-                                        </button>
-                                        <button
-                                            onClick={() => onDelete(it)}
-                                            style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid #ccc' }}
-                                        >
-                                            Borrar
-                                        </button>
-                                    </div>
+                                    {editingItemId === it.id ? (
+                                        <div style={{ display: 'flex', gap: 6, flex: 1, flexWrap: 'wrap' }}>
+                                            <Input
+                                                value={editingItemName}
+                                                onChange={(e) => setEditingItemName(e.target.value)}
+                                                onKeyDown={(e) => { if (e.key === 'Enter') onSaveItemName(it); if (e.key === 'Escape') setEditingItemId(null); }}
+                                                autoFocus
+                                                style={{ flex: 1, minWidth: 120 }}
+                                            />
+                                            <Button size="sm" variant="primary" onClick={() => onSaveItemName(it)}>✓</Button>
+                                            <Button size="sm" onClick={() => setEditingItemId(null)}>✕</Button>
+                                        </div>
+                                    ) : (
+                                        <div>
+                                            <div style={{ fontWeight: 600 }}>{it.name}</div>
+                                            <div style={{ fontSize: '0.82rem', opacity: 0.7 }}>{statusLabel(it.status)}</div>
+                                        </div>
+                                    )}
+                                    {editingItemId !== it.id && (
+                                        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                                            <Button size="sm" variant="primary" onClick={() => onToggle(it)}>
+                                                {nextStatusLabel(it.status)}
+                                            </Button>
+                                            {isOwner && (
+                                                <Button size="sm" onClick={() => { setEditingItemId(it.id); setEditingItemName(it.name); }}>
+                                                    Editar
+                                                </Button>
+                                            )}
+                                            {isOwner && (
+                                                <Button size="sm" variant="danger" onClick={() => onDelete(it)}>
+                                                    Borrar
+                                                </Button>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                         </div>
                     </div>
                 ))}
 
-                {items.length === 0 && !loading && (
-                    <div style={{ opacity: 0.75 }}>Aún no hay cosas en la lista. Agrega la primera (ej. carbón).</div>
+                {items.length === 0 && !itemsLoading && (
+                    <div style={{ opacity: 0.65 }}>
+                        Aún no hay ítems. Agrega el primero (ej. carbón).
+                    </div>
+                )}
+                {items.length > 0 && filteredItems.length === 0 && (
+                    <div style={{ opacity: 0.65 }}>
+                        No hay ítems con ese filtro.
+                    </div>
                 )}
             </div>
 
-            <hr style={{ margin: '24px 0' }} />
-            <h3>Gastos</h3>
+            <hr style={{ margin: '28px 0', opacity: 0.2 }} />
 
-            <div style={{ display: 'grid', gap: 10, maxWidth: 320 }}>
-                <input
+            {/* ── Gastos ── */}
+            <h3 style={{ marginTop: 0 }}>Gastos</h3>
+
+            <div style={{ display: 'grid', gap: 8, maxWidth: 360, marginBottom: 16 }}>
+                <Input
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     placeholder="Monto"
                     inputMode="decimal"
-                    style={{ padding: 10, borderRadius: 10, border: '1px solid #ccc' }}
                 />
-                <input
+                <Input
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    placeholder="Nota (ej. Carbón)"
-                    style={{ padding: 10, borderRadius: 10, border: '1px solid #ccc' }}
+                    placeholder="Nota (ej. Carbón, carne...)"
                 />
-                <button
-                    onClick={onAddExpense}
-                    disabled={expenseSaving}
-                    style={{ padding: 12, borderRadius: 10, border: '1px solid #000', fontWeight: 800 }}
-                >
-                    {expenseSaving ? 'Agregando...' : 'Agregar gasto'}
-                </button>
-                {expenseErr && <div style={{ color: 'crimson' }}>{expenseErr}</div>}
+                <Button variant="primary" full onClick={onAddExpense} disabled={expenseSaving}>
+                    {expenseSaving ? 'Agregando...' : 'Registrar gasto'}
+                </Button>
+                {expenseErr && <div className="msg-error">{expenseErr}</div>}
             </div>
 
-            <p>
+            <p style={{ marginBottom: 4 }}>
                 <strong>Total:</strong> ${total.toFixed(2)}
             </p>
 
-            <hr style={{ margin: '16px 0' }} />
-            <h4>Balance</h4>
+            {/* Lista de gastos */}
+            <div style={{ display: 'grid', gap: 4, marginBottom: 20 }}>
+                {expenses.map((e) => (
+                    <div
+                        key={e.id}
+                        style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '8px 12px',
+                            borderRadius: 8,
+                            border: '1px solid var(--color-card-border)',
+                            gap: 10,
+                        }}
+                    >
+                        <div>
+                            <span style={{ fontWeight: 600 }}>{displayName(e.paid_by)}</span>
+                            <span style={{ opacity: 0.6 }}> · </span>
+                            <strong>${Number(e.amount).toFixed(2)}</strong>
+                            {e.note && <span style={{ opacity: 0.7 }}> — {e.note}</span>}
+                        </div>
+                        {isOwner && (
+                            <Button size="sm" variant="danger" onClick={() => deleteExpense(e.id)}>
+                                ✕
+                            </Button>
+                        )}
+                    </div>
+                ))}
+                {expenses.length === 0 && (
+                    <div style={{ opacity: 0.65 }}>Aún no hay gastos registrados.</div>
+                )}
+            </div>
 
-            <div style={{ display: 'grid', gap: 8 }}>
+            <hr style={{ margin: '20px 0', opacity: 0.2 }} />
+
+            {/* ── Balance ── */}
+            <h4 style={{ marginTop: 0 }}>Balance</h4>
+            <div style={{ display: 'grid', gap: 6, marginBottom: 20 }}>
                 {balances.map(({ uid, diff }) => {
                     if (Math.abs(diff) < 0.01) return null;
-
-                    const label = profiles[uid]?.display_name?.trim()
-                        ? profiles[uid]!.display_name!
-                        : `Invitado ${uid.slice(0, 4)}`;
-
                     return (
                         <div
                             key={uid}
                             style={{
-                                padding: '8px 10px',
-                                border: '1px solid #eee',
+                                padding: '8px 12px',
                                 borderRadius: 8,
-                                background: diff > 0 ? '#f0fff4' : '#fff5f5',
-                                color: diff > 0 ? '#046c4e' : '#7f1d1d',
+                                border: '1px solid var(--color-card-border)',
+                                background: diff > 0 ? 'rgba(5,150,105,0.08)' : 'rgba(220,38,38,0.08)',
+                                color: diff > 0 ? '#059669' : 'var(--color-danger)',
                             }}
                         >
                             {diff > 0 ? (
-                                <>
-                                    <strong>{label}</strong> recibe <strong>${diff.toFixed(2)}</strong>
-                                </>
+                                <><strong>{displayName(uid)}</strong> recibe <strong>${diff.toFixed(2)}</strong></>
                             ) : (
-                                <>
-                                    {label} debe <strong>${Math.abs(diff).toFixed(2)}</strong>
-                                </>
+                                <>{displayName(uid)} debe <strong>${Math.abs(diff).toFixed(2)}</strong></>
                             )}
                         </div>
                     );
                 })}
-
-                {balances.every((b) => Math.abs(b.diff) < 0.01) && <div style={{ opacity: 0.7 }}>Todos están parejos.</div>}
+                {balances.every((b) => Math.abs(b.diff) < 0.01) && (
+                    <div style={{ opacity: 0.65 }}>Todos están parejos.</div>
+                )}
             </div>
 
-            <hr style={{ margin: '16px 0' }} />
-            <h4>¿Quién le paga a quién?</h4>
-
-            <div style={{ display: 'grid', gap: 8 }}>
+            {/* ── Quién le paga a quién ── */}
+            <h4 style={{ marginTop: 0 }}>¿Quién le paga a quién?</h4>
+            <div style={{ display: 'grid', gap: 6, marginBottom: 20 }}>
                 {transfers.map((t, idx) => {
                     if (t.from === t.to) return null;
-
-                    const fromName = profiles[t.from]?.display_name?.trim()
-                        ? profiles[t.from]!.display_name!
-                        : `Invitado ${t.from.slice(0, 4)}`;
-
-                    const toName = profiles[t.to]?.display_name?.trim()
-                        ? profiles[t.to]!.display_name!
-                        : `Invitado ${t.to.slice(0, 4)}`;
-
                     return (
                         <div
                             key={`${t.from}-${t.to}-${idx}`}
                             style={{
-                                padding: '10px 12px',
-                                border: '1px solid #eee',
-                                borderRadius: 10,
                                 display: 'flex',
                                 justifyContent: 'space-between',
                                 gap: 10,
-                            }}
-                        >
-                            <span style={{ fontWeight: 700 }}>
-                                {fromName} <span style={{ opacity: 0.7, fontWeight: 600 }}>paga a</span> {toName}
-                            </span>
-                            <span style={{ fontWeight: 800 }}>${t.amount.toFixed(2)}</span>
-                        </div>
-                    );
-                })}
-
-                {transfers.length === 0 && <div style={{ opacity: 0.7 }}>Todo parejo. Nadie le debe a nadie.</div>}
-            </div>
-
-            <hr style={{ margin: '16px 0' }} />
-            <h4>Desglose de Gastos</h4>
-
-            <div style={{ display: 'grid', gap: 8 }}>
-                {byUser.map(([uid, amt]) => {
-                    const label = profiles[uid]?.display_name?.trim()
-                        ? profiles[uid]!.display_name!
-                        : `Invitado ${uid.slice(0, 4)}`;
-
-                    return (
-                        <div
-                            key={uid}
-                            style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                padding: '8px 10px',
-                                border: '1px solid #eee',
+                                padding: '10px 12px',
                                 borderRadius: 8,
+                                border: '1px solid var(--color-card-border)',
                             }}
                         >
-                            <span style={{ fontWeight: 600 }}>{label}</span>
-                            <span style={{ fontWeight: 700 }}>${amt.toFixed(2)}</span>
+                            <span>
+                                <strong>{displayName(t.from)}</strong>
+                                <span style={{ opacity: 0.65 }}> paga a </span>
+                                <strong>{displayName(t.to)}</strong>
+                            </span>
+                            <span style={{ fontWeight: 700 }}>${t.amount.toFixed(2)}</span>
                         </div>
                     );
                 })}
-
-                {byUser.length === 0 && <div style={{ opacity: 0.7 }}>Aún no hay gastos registrados.</div>}
+                {transfers.length === 0 && (
+                    <div style={{ opacity: 0.65 }}>Todo parejo. Nadie le debe a nadie.</div>
+                )}
             </div>
 
-            <ul>
-                {expenses.map((e) => (
-                    <li key={e.id}>
-                        ${Number(e.amount).toFixed(2)} — {e.note ?? 'Sin nota'}{' '}
-                        <button onClick={() => deleteExpense(e.id)} style={{ marginLeft: 8 }}>
-                            ✕
-                        </button>
-                    </li>
+            {/* ── Desglose por persona ── */}
+            <h4 style={{ marginTop: 0 }}>Desglose por persona</h4>
+            <div style={{ display: 'grid', gap: 6 }}>
+                {byUser.map(([uid, amt]) => (
+                    <div
+                        key={uid}
+                        style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            padding: '8px 12px',
+                            borderRadius: 8,
+                            border: '1px solid var(--color-card-border)',
+                        }}
+                    >
+                        <span>{displayName(uid)}</span>
+                        <span style={{ fontWeight: 700 }}>${amt.toFixed(2)}</span>
+                    </div>
                 ))}
-            </ul>
-
-            <hr style={{ margin: '18px 0' }} />
-            <div style={{ opacity: 0.75 }}>
-                Tip: usa “Generar invitación” y abre el link con otro usuario (en incógnito) para que se una y vea la lista.
+                {byUser.length === 0 && <div style={{ opacity: 0.65 }}>Sin gastos aún.</div>}
             </div>
         </div>
     );

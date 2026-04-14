@@ -34,6 +34,14 @@ export async function updateItemStatus(itemId: string, status: ItemStatus) {
   if (error) throw error;
 }
 
+export async function updateItemName(itemId: string, name: string) {
+  const { error } = await supabase
+    .from("items")
+    .update({ name })
+    .eq("id", itemId);
+  if (error) throw error;
+}
+
 export async function deleteItem(itemId: string) {
   const { error } = await supabase.from("items").delete().eq("id", itemId);
   if (error) throw error;

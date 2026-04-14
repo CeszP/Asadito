@@ -5,6 +5,7 @@ export async function sendOtp(email: string) {
     email,
     options: {
       shouldCreateUser: true,
+      emailRedirectTo: window.location.origin,
     },
   });
   if (error) throw error;

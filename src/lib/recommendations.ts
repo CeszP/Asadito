@@ -50,3 +50,45 @@ export function formatRecAmount(n: number, unit: RecUnit) {
   if (unit === "pz") return `${Math.round(n)}`;
   return n.toFixed(2);
 }
+
+import { supabase } from "./supabase";
+
+export type RecommendationRowDB = {
+  item_id: number;
+  slug: string;
+  name: string;
+  unit: string;
+  recommended_qty: number;
+  on_hand_qty: number;
+  consumed_qty: number;
+  need_to_buy_qty: number;
+};
+
+export async function getEventRecommendationsDB(eventId: string) {
+  const { data, error } = await supabase.rpc("get_event_recommendations", {
+    p_event_id: eventId,
+  });
+  if (error) throw error;
+  return (data ?? []) as RecommendationRowDB[];
+}
+
+export async function createConsumptionDB(payload: {
+  event_id: string;
+  consumption_item_id: number;
+  qty: number;
+  note?: string | null;
+}) {
+  const { data, error } = await supabase
+    .from("event_consumptions")
+    .insert({
+      event_id: payload.event_id,
+      consumption_item_id: payload.consumption_item_id,
+      qty: payload.qty,
+      note: payload.note ?? null,
+    })
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data;
+}

@@ -1,6 +1,25 @@
 import { supabase } from "./supabase";
 import type { EventRow } from "../types/db";
 
+export async function updateEvent(
+  id: string,
+  payload: { title?: string; event_datetime?: string | null; location_text?: string | null }
+): Promise<void> {
+  const updates: Record<string, unknown> = {};
+  if (payload.title !== undefined) updates.title = payload.title.trim();
+  if ("event_datetime" in payload) updates.event_datetime = payload.event_datetime;
+  if ("location_text" in payload) updates.location_text = payload.location_text;
+  if (Object.keys(updates).length === 0) return;
+
+  const { error } = await supabase.from("events").update(updates).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteEvent(id: string): Promise<void> {
+  const { error } = await supabase.from("events").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export async function listMyEvents(): Promise<EventRow[]> {
   // Con tu policy events_select_if_member, esto SOLO regresa eventos
   // donde exista event_members para el usuario.
@@ -17,6 +36,8 @@ export async function createEvent(payload: {
   title: string;
   adults_count: number;
   minors_count: number;
+  event_datetime?: string | null;
+  location_text?: string | null;
 }): Promise<EventRow> {
   const title = payload.title.trim();
   if (!title) throw new Error("Nombre de evento requerido");
@@ -35,6 +56,8 @@ export async function createEvent(payload: {
       title,
       adults_count: payload.adults_count,
       minors_count: payload.minors_count,
+      ...(payload.event_datetime ? { event_datetime: payload.event_datetime } : {}),
+      ...(payload.location_text ? { location_text: payload.location_text.trim() } : {}),
     })
     .select("*")
     .single();
@@ -46,8 +69,7 @@ export async function createEvent(payload: {
   const { error: memErr } = await supabase.from("event_members").insert({
     event_id: ev.id,
     user_id: uid,
-    // Si tu tabla tiene role, descomenta:
-    // role: "owner",
+    role: "owner",
   });
 
   if (memErr) throw memErr;

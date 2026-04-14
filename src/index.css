@@ -11,6 +11,17 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* Design tokens */
+  --radius: 10px;
+  --border: 1px solid #3a3a3a;
+  --border-strong: 1px solid rgba(255, 255, 255, 0.87);
+  --color-danger: #f87171;
+  --color-muted: rgba(255, 255, 255, 0.5);
+  --color-card: #2a2a2a;
+  --color-card-border: #3a3a3a;
+  --color-badge-bg: #1e1b4b;
+  --color-badge-text: #a5b4fc;
 }
 
 a {
@@ -24,10 +35,12 @@ a:hover {
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
   min-height: 100vh;
+}
+
+#root {
+  width: 100%;
 }
 
 h1 {
@@ -58,6 +71,14 @@ button:focus-visible {
   :root {
     color: #213547;
     background-color: #ffffff;
+    --border: 1px solid #ddd;
+    --border-strong: 1px solid #213547;
+    --color-danger: #dc2626;
+    --color-muted: #666;
+    --color-card: #fafafa;
+    --color-card-border: #e5e7eb;
+    --color-badge-bg: #eef2ff;
+    --color-badge-text: #4338ca;
   }
   a:hover {
     color: #747bff;
@@ -65,4 +86,113 @@ button:focus-visible {
   button {
     background-color: #f9f9f9;
   }
+}
+
+/* ─── Reset ─────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+/* ─── Button component ───────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px 16px;
+  border-radius: var(--radius);
+  border: var(--border);
+  font-size: 1rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s, border-color 0.15s;
+  line-height: 1.2;
+  text-align: center;
+}
+.btn:hover:not(:disabled) { opacity: 0.82; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn--primary { border: var(--border-strong); font-weight: 700; }
+.btn--ghost   { border: none; background: transparent; padding-left: 0; padding-right: 0; }
+.btn--danger  { border-color: var(--color-danger); color: var(--color-danger); }
+
+.btn--sm  { padding: 8px 12px; font-size: 0.9rem; }
+.btn--full { width: 100%; }
+
+/* ─── Input / Field component ────────────────────────────── */
+.field { display: grid; gap: 4px; }
+
+.field__label {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.field__input {
+  padding: 11px 12px;
+  border-radius: var(--radius);
+  border: var(--border);
+  font-size: 1rem;
+  font-family: inherit;
+  background: transparent;
+  color: inherit;
+  width: 100%;
+}
+.field__input:focus { outline: none; border-color: #646cff; }
+.field__input--error { border-color: var(--color-danger) !important; }
+
+.field__error {
+  font-size: 0.85rem;
+  color: var(--color-danger);
+}
+
+/* ─── Loading component ──────────────────────────────────── */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  color: var(--color-muted);
+}
+.loading__spinner {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* ─── Message utilities ──────────────────────────────────── */
+.msg-error   { color: var(--color-danger); font-size: 0.95rem; }
+.msg-success { font-size: 0.95rem; opacity: 0.85; }
+
+/* ─── Card panels ────────────────────────────────────────── */
+.card {
+  border: 1px solid var(--color-card-border);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--color-card);
+}
+
+/* ─── Badge ──────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: var(--color-badge-bg);
+  color: var(--color-badge-text);
+  vertical-align: middle;
+  margin-left: 8px;
+}
+
+/* ─── Event header meta ──────────────────────────────────── */
+.event-meta {
+  opacity: 0.72;
+  font-size: 0.9rem;
+  margin-top: 2px;
 }

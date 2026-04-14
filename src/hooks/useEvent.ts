@@ -18,7 +18,7 @@ export function useEvent(eventId: string) {
       try {
         const { data, error } = await supabase
           .from("events")
-          .select("id,title,adults_count,minors_count,created_at")
+          .select("id,title,adults_count,minors_count,created_at,event_datetime,location_text,created_by")
           .eq("id", eventId)
           .single();
 

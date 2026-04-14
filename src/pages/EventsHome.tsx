@@ -3,17 +3,37 @@ import { useNavigate } from 'react-router-dom';
 import { listMyEvents, createEvent } from '../lib/events';
 import { signOut } from '../lib/auth';
 import type { EventRow } from '../types/db';
+import { Button } from '../components/Button';
+import { Input } from '../components/Input';
+import { Loading } from '../components/Loading';
+
+function formatEventDate(dateStr: string | null): string | null {
+    if (!dateStr) return null;
+    try {
+        return new Intl.DateTimeFormat('es-MX', {
+            weekday: 'short',
+            day: 'numeric',
+            month: 'short',
+            hour: '2-digit',
+            minute: '2-digit',
+        }).format(new Date(dateStr));
+    } catch {
+        return null;
+    }
+}
 
 export default function EventsHome() {
     const navigate = useNavigate();
 
     const [events, setEvents] = useState<EventRow[]>([]);
+    const [listLoading, setListLoading] = useState(true);
     const [title, setTitle] = useState('Asadito del sábado');
-    const [loading, setLoading] = useState(false);
-    const [err, setErr] = useState<string | null>(null);
-
     const [adults, setAdults] = useState<number>(4);
     const [minors, setMinors] = useState<number>(0);
+    const [datetime, setDatetime] = useState('');
+    const [location, setLocation] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [err, setErr] = useState<string | null>(null);
 
     async function refresh() {
         setErr(null);
@@ -22,7 +42,9 @@ export default function EventsHome() {
     }
 
     useEffect(() => {
-        refresh().catch((e) => setErr(e?.message ?? 'No se pudieron cargar eventos'));
+        refresh()
+            .catch((e) => setErr(e?.message ?? 'No se pudieron cargar eventos'))
+            .finally(() => setListLoading(false));
     }, []);
 
     async function onCreate() {
@@ -38,7 +60,7 @@ export default function EventsHome() {
         const m = Number.isFinite(minors) ? Math.max(0, Math.floor(minors)) : 0;
 
         if (a + m <= 0) {
-            setErr('Debes indicar al menos 1 asistente (adulto o menor).');
+            setErr('Debes indicar al menos 1 asistente.');
             return;
         }
 
@@ -48,13 +70,16 @@ export default function EventsHome() {
                 title: cleanTitle,
                 adults_count: a,
                 minors_count: m,
+                event_datetime: datetime || null,
+                location_text: location || null,
             });
 
             setTitle('Asadito del sábado');
             setAdults(4);
             setMinors(0);
+            setDatetime('');
+            setLocation('');
 
-            await refresh();
             navigate(`/event/${ev.id}`);
         } catch (e: any) {
             setErr(e?.message ?? 'No se pudo crear el evento');
@@ -66,76 +91,92 @@ export default function EventsHome() {
     return (
         <div style={{ padding: 16, maxWidth: 720, margin: '0 auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
-                <h2 style={{ margin: 0 }}>Asadito</h2>
-                <button onClick={() => signOut()} style={{ padding: 10, borderRadius: 10, border: '1px solid #000' }}>
-                    Cerrar sesión
-                </button>
+                <h2 style={{ margin: 0 }}>Asadito 🔥</h2>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <Button size="sm" onClick={() => navigate('/me')}>Mi nombre</Button>
+                    <Button size="sm" onClick={() => signOut()}>Cerrar sesión</Button>
+                </div>
             </div>
 
-            <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
-                <input
+            <div style={{ marginTop: 18, display: 'grid', gap: 10 }}>
+                <Input
+                    label="Nombre del evento"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    placeholder="Nombre del evento"
-                    style={{ padding: 12, borderRadius: 10, border: '1px solid #ccc' }}
+                    placeholder="Asadito del sábado"
                 />
 
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                    <div style={{ flex: 1, minWidth: 160 }}>
-                        <div style={{ fontWeight: 700, marginBottom: 6 }}>Adultos</div>
-                        <input
+                    <div style={{ flex: 1, minWidth: 140 }}>
+                        <Input
+                            label="Adultos"
                             value={String(adults)}
                             onChange={(e) => setAdults(Number(e.target.value))}
                             inputMode="numeric"
-                            style={{ padding: 12, borderRadius: 10, border: '1px solid #ccc', width: '100%' }}
                         />
                     </div>
-
-                    <div style={{ flex: 1, minWidth: 160 }}>
-                        <div style={{ fontWeight: 700, marginBottom: 6 }}>Menores</div>
-                        <input
+                    <div style={{ flex: 1, minWidth: 140 }}>
+                        <Input
+                            label="Menores"
                             value={String(minors)}
                             onChange={(e) => setMinors(Number(e.target.value))}
                             inputMode="numeric"
-                            style={{ padding: 12, borderRadius: 10, border: '1px solid #ccc', width: '100%' }}
                         />
                     </div>
                 </div>
 
-                <button
-                    disabled={loading}
-                    onClick={onCreate}
-                    style={{ padding: 12, borderRadius: 10, border: '1px solid #000', fontWeight: 700 }}
-                >
-                    {loading ? 'Creando...' : 'Crear evento'}
-                </button>
+                <Input
+                    label="Fecha y hora (opcional)"
+                    type="datetime-local"
+                    value={datetime}
+                    onChange={(e) => setDatetime(e.target.value)}
+                />
 
-                {err && <div style={{ color: 'crimson' }}>{err}</div>}
+                <Input
+                    label="Lugar (opcional)"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="Ej. Casa de Rodrigo"
+                />
+
+                <Button variant="primary" full disabled={loading} onClick={onCreate}>
+                    {loading ? 'Creando...' : 'Crear evento'}
+                </Button>
+
+                {err && <div className="msg-error">{err}</div>}
             </div>
 
-            <button onClick={() => navigate('/me')} style={{ marginTop: 10, padding: 10, borderRadius: 10, border: '1px solid #ccc' }}>
-                Mi nombre
-            </button>
+            <h3 style={{ marginTop: 28, marginBottom: 12 }}>Tus eventos</h3>
 
-            <h3 style={{ marginTop: 20 }}>Tus eventos</h3>
+            {listLoading && <Loading text="Cargando eventos..." />}
 
             <div style={{ display: 'grid', gap: 10 }}>
-                {events.map((ev) => (
-                    <button
-                        key={ev.id}
-                        onClick={() => navigate(`/event/${ev.id}`)}
-                        style={{ textAlign: 'left', padding: 12, borderRadius: 10, border: '1px solid #ddd' }}
-                    >
-                        <div style={{ fontWeight: 700 }}>{ev.title}</div>
-                        <div style={{ opacity: 0.8 }}>
-                            {typeof ev.adults_count === 'number' && typeof ev.minors_count === 'number'
-                                ? `${ev.adults_count} adultos · ${ev.minors_count} menores`
-                                : 'Asistentes no especificados'}
-                        </div>
-                    </button>
-                ))}
+                {events.map((ev) => {
+                    const dateLabel = formatEventDate(ev.event_datetime);
+                    return (
+                        <button
+                            key={ev.id}
+                            onClick={() => navigate(`/event/${ev.id}`)}
+                            className="card"
+                            style={{ textAlign: 'left', cursor: 'pointer', width: '100%' }}
+                        >
+                            <div style={{ fontWeight: 700 }}>{ev.title}</div>
+                            <div className="event-meta">
+                                {typeof ev.adults_count === 'number'
+                                    ? `${ev.adults_count} adultos · ${ev.minors_count} menores`
+                                    : 'Asistentes no especificados'}
+                                {dateLabel && ` · ${dateLabel}`}
+                            </div>
+                            {ev.location_text && (
+                                <div className="event-meta">📍 {ev.location_text}</div>
+                            )}
+                        </button>
+                    );
+                })}
 
-                {events.length === 0 && <div style={{ opacity: 0.7 }}>Aún no tienes eventos. Crea el primero.</div>}
+                {!listLoading && events.length === 0 && (
+                    <div style={{ opacity: 0.65 }}>Aún no tienes eventos. Crea el primero.</div>
+                )}
             </div>
         </div>
     );

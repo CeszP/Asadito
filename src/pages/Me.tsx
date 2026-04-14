@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getMyProfile, upsertMyDisplayName } from '../lib/profile';
+import { Button } from '../components/Button';
+import { Input } from '../components/Input';
 
 export default function Me() {
     const navigate = useNavigate();
@@ -12,7 +14,7 @@ export default function Me() {
     useEffect(() => {
         getMyProfile()
             .then((p) => setName(p?.display_name ?? ''))
-            .catch(() => { });
+            .catch(() => {});
     }, []);
 
     async function onSave() {
@@ -31,30 +33,29 @@ export default function Me() {
 
     return (
         <div style={{ padding: 16, maxWidth: 520, margin: '0 auto' }}>
-            <button onClick={() => navigate('/')} style={{ padding: 10, borderRadius: 10, border: '1px solid #ccc' }}>
+            <Button variant="ghost" onClick={() => navigate('/')}>
                 ← Volver
-            </button>
+            </Button>
 
             <h2 style={{ marginTop: 14 }}>Tu nombre</h2>
-            <p style={{ marginTop: 0, opacity: 0.8 }}>Esto es lo que verán los demás en gastos y checklist.</p>
+            <p style={{ marginTop: 0, opacity: 0.75 }}>
+                Esto es lo que verán los demás en gastos y checklist.
+            </p>
 
-            <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Ej. César"
-                style={{ padding: 12, borderRadius: 10, border: '1px solid #ccc', width: '100%' }}
-            />
+            <div style={{ display: 'grid', gap: 10 }}>
+                <Input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Ej. César"
+                    error={err ?? undefined}
+                />
 
-            <button
-                onClick={onSave}
-                disabled={saving}
-                style={{ marginTop: 10, padding: 12, borderRadius: 10, border: '1px solid #000', fontWeight: 800 }}
-            >
-                {saving ? 'Guardando...' : 'Guardar'}
-            </button>
+                <Button variant="primary" full onClick={onSave} disabled={saving}>
+                    {saving ? 'Guardando...' : 'Guardar'}
+                </Button>
 
-            {msg && <div style={{ marginTop: 10, opacity: 0.85 }}>{msg}</div>}
-            {err && <div style={{ marginTop: 10, color: 'crimson' }}>{err}</div>}
+                {msg && <div className="msg-success">{msg}</div>}
+            </div>
         </div>
     );
 }
