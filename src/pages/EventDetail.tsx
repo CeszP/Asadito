@@ -244,7 +244,8 @@ export default function EventDetail() {
 
     function prefillFromRec(r: { key: string; unit: 'kg' | 'pz' | 'l'; target: number }) {
         const assigned = recProgress[r.key] ?? 0;
-        const remaining = Math.max(0, Math.round((r.target - assigned) * 100) / 100);
+        const rawRemaining = Math.max(0, Math.round((r.target - assigned) * 100) / 100);
+        const remaining = r.unit === 'pz' ? Math.round(rawRemaining) : rawRemaining;
         const cat = REC_TO_CATEGORY[r.key] as Category | undefined;
         if (cat && CATEGORIES.includes(cat as Category)) setCategory(cat as Category);
         setQty(remaining > 0 ? String(remaining) : '');
@@ -555,7 +556,9 @@ export default function EventDetail() {
                                             </div>
                                             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                                                 {cuts.map((cut) => {
-                                                    const cutQty = Math.max(0.01, Math.round(cut.pct * (remaining > 0 ? remaining : r.target) * 100) / 100);
+                                                    const base = remaining > 0 ? remaining : r.target;
+                                                    const rawCutQty = Math.round(cut.pct * base * 100) / 100;
+                                                    const cutQty = Math.max(r.unit === 'pz' ? 1 : 0.01, r.unit === 'pz' ? Math.round(rawCutQty) : rawCutQty);
                                                     return (
                                                         <button
                                                             key={cut.name}
