@@ -242,7 +242,7 @@ export default function EventDetail() {
 
     // ─── Handlers ───────────────────────────────────────────
 
-    function prefillFromRec(r: { key: string; unit: 'kg' | 'pz' | 'l'; target: number }) {
+    function prefillFromRec(r: { key: string; label: string; unit: 'kg' | 'pz' | 'l'; target: number }) {
         const assigned = recProgress[r.key] ?? 0;
         const rawRemaining = Math.max(0, Math.round((r.target - assigned) * 100) / 100);
         const remaining = r.unit === 'pz' ? Math.round(rawRemaining) : rawRemaining;
@@ -251,11 +251,12 @@ export default function EventDetail() {
         setQty(remaining > 0 ? String(remaining) : '');
         setUnit(r.unit);
         setIsHomemade(false);
-        setName('');
+        setName(r.label);
         setExpandedRec(null);
         setTimeout(() => {
             nameInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             nameInputRef.current?.focus();
+            nameInputRef.current?.select();
         }, 50);
     }
 
