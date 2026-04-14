@@ -12,5 +12,13 @@ export function ProtectedRoute() {
         return <Navigate to="/login" replace state={{ from: location.pathname }} />;
     }
 
+    // Magic link case: user authenticated via email link, bypassing Verify.tsx.
+    // sessionStorage may still hold a pending /join/CODE redirect.
+    const pending = sessionStorage.getItem('asadito_from');
+    if (pending?.startsWith('/join/') && location.pathname !== pending) {
+        sessionStorage.removeItem('asadito_from');
+        return <Navigate to={pending} replace />;
+    }
+
     return <Outlet />;
 }
