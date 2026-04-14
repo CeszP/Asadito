@@ -1,4 +1,4 @@
-# Asadito 🔥🥩
+# Asadito
 
 Organiza un asado sin caos:
 
@@ -21,4 +21,4 @@ Organiza un asado sin caos:
 - Supabase (Auth, DB, Realtime)
 - PWA / Store-ready
 
-🚀 En desarrollo
+Estado Actual:  En desarrollo
