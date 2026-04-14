@@ -610,8 +610,15 @@ export default function EventDetail() {
                     {inviteLoading ? 'Generando...' : 'Generar invitación'}
                 </Button>
                 {inviteUrl && (
-                    <div style={{ opacity: 0.8, wordBreak: 'break-all', fontSize: '0.88rem' }}>
-                        ✓ Link copiado: <code>{inviteUrl}</code>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.88rem' }}>
+                        <span style={{ color: '#059669', fontWeight: 600 }}>✓ Link copiado</span>
+                        <button
+                            className="btn btn--sm"
+                            style={{ fontSize: '0.82rem' }}
+                            onClick={() => navigator.clipboard.writeText(inviteUrl).catch(() => {})}
+                        >
+                            Copiar de nuevo
+                        </button>
                     </div>
                 )}
             </div>
